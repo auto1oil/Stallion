@@ -44,11 +44,14 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 - **Approve funds** on tickets the office has audited and approved — the
   digital replacement for the emailed ticket → Bill of Sale loop
 
-## 🚚 Delivery + trucking side (kept from the dispatch app)
-- Dispatch board, delivery log, signature-on-delivery with a signed PDF
-- Trucking freight invoicing (lanes, commodities, EIA-driven fuel surcharge)
-- Customer directory with document checklist (profile sheet, TC-721, W-9)
-- Customer ordering at `/shop`, order confirmation, and QuickBooks invoicing
+## 🚚 Dispatch side (kept from the original app)
+- Dispatch board for delivery runs, entered by an admin, with truck and driver
+  assignment and CSV export
+- Signature-on-delivery with the signed PDF stored against the order
+- Delivery log of everything that's been run
+- Customer directory with the document checklist (profile sheet, TC-721, W-9),
+  QuickBooks customer sync, balances and invoice history
+- PO log with auto-incrementing numbers
 
 ## 🧰 Everywhere
 - **QuickBooks Online** — OAuth connection, customer sync, invoice creation,

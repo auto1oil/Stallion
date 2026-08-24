@@ -14,7 +14,7 @@ export default async function TasksLayout({ children }: { children: React.ReactN
     .eq('id', user.id)
     .single();
   if (!profile) redirect('/login');
-  if (profile.role === 'customer') redirect('/shop');
+  if (profile.role === 'customer') redirect('/no-access');
   // Admins manage tasks from the admin Tasks page.
   if (profile.role === 'admin' || profile.role === 'master_admin') redirect('/admin/tasks');
 

@@ -2,7 +2,6 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import PwaRegister from '@/components/PwaRegister';
 import PullToRefresh from '@/components/PullToRefresh';
-import SupportChatWidget from '@/components/SupportChatWidget';
 import Watermark from '@/components/Watermark';
 import AppUpdater from '@/components/AppUpdater';
 import FloatingButton from '@/components/FloatingButton';
@@ -47,7 +46,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PullToRefresh />
         {children}
         <FloatingButton />
-        <SupportChatWidget />
         <Watermark />
       </body>
     </html>

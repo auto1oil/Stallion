@@ -35,7 +35,7 @@ export default function FeatureGuard({ group }: { group: FeatureGroup }) {
         const href = f.key.slice(group.length + 1); // "group:href" → href
         return pathMatches(pathname, href);
       });
-      if (hit) router.replace(group === 'customer' ? '/shop' : '/account');
+      if (hit) router.replace('/account');
     });
     return () => { cancelled = true; };
   }, [pathname, group, router]);

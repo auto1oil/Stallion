@@ -15,10 +15,6 @@
     {
       "path": "/api/cron/admin-tasks-due",
       "schedule": "0 15 * * *"
-    },
-    {
-      "path": "/api/cron/fetch-eia",
-      "schedule": "0 13 * * 2"
     }
   ]
 }

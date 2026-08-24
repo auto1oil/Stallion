@@ -2,8 +2,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-// Public top nav for the marketing pages (Home, Products). "Order products"
-// drops the visitor into the app (customer login / shop).
+// Public top nav for the marketing page. Everyone who signs in is staff, so
+// there's one way into the app.
 export default function MarketingNav() {
   const pathname = usePathname() || '';
   const link = (href: string, label: string) => {
@@ -31,22 +31,10 @@ export default function MarketingNav() {
         <nav className="flex items-center gap-1 flex-wrap justify-end">
           {link('/home', 'Home')}
           <Link
-            href="/shop/login"
-            className="ml-1 px-3 py-1.5 text-sm rounded-md border border-brand-700 text-brand-700 font-medium hover:bg-brand-50 whitespace-nowrap"
-          >
-            Customer login
-          </Link>
-          <Link
             href="/login"
-            className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 whitespace-nowrap"
+            className="ml-1 px-3 py-1.5 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 whitespace-nowrap"
           >
-            Staff login
-          </Link>
-          <Link
-            href="/shop/login"
-            className="px-3 py-1.5 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 whitespace-nowrap"
-          >
-            Order products →
+            Sign in →
           </Link>
         </nav>
       </div>

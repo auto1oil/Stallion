@@ -23,7 +23,7 @@ export default async function DriverLayout({ children }: { children: React.React
   }
   if (profile.role === 'contractor') redirect('/contractor');
   if (profile.role === 'funder') redirect('/funder');
-  if (profile.role === 'customer') redirect('/shop');
+  if (profile.role === 'customer') redirect('/no-access');
 
   // Office shares the crew's customer directory + time clock but keeps its own
   // tab set, so the guard follows the role rather than the folder.

@@ -35,15 +35,8 @@ export async function runDeactivationPass(): Promise<{ total: number; deactivate
   const profToBiz = new Map<string, string>();
   for (const p of (profs || []) as { id: string; business_id: string }[]) profToBiz.set(p.id, p.business_id);
 
-  const { data: ords } = await db.from('customer_orders').select('customer_id, created_at');
-  const lastAppOrder = new Map<string, string>();
-  for (const o of (ords || []) as { customer_id: string; created_at: string }[]) {
-    const biz = profToBiz.get(o.customer_id);
-    if (!biz) continue;
-    const day = (o.created_at || '').slice(0, 10);
-    const cur = lastAppOrder.get(biz);
-    if (!cur || day > cur) lastAppOrder.set(biz, day);
-  }
+  // Activity is judged purely on the QuickBooks history cached on each
+  // business row — there are no in-app customer orders any more.
 
   let deactivated = 0;
   let reactivated = 0;
@@ -51,7 +44,6 @@ export async function runDeactivationPass(): Promise<{ total: number; deactivate
     const lastActivity = maxDate([
       b.qb_last_purchase_date,
       ...(b.qb_recent_invoice_dates || []),
-      lastAppOrder.get(b.id),
     ]);
     const anchor = maxDate([lastActivity, b.reactivated_at, b.created_at]);
     const shouldBeActive = !!anchor && anchor >= cutoff;

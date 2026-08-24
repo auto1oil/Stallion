@@ -42,7 +42,7 @@ export default function ResetPasswordPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) await supabase.from('profiles').update({ must_change_password: false }).eq('id', user.id);
     setDone(true);
-    // Route by role from the root (staff → their dashboard, customer → shop).
+    // Route from the root, which sends each role to its own home.
     setTimeout(() => { router.push('/'); router.refresh(); }, 1500);
   }
 

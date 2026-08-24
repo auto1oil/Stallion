@@ -81,7 +81,6 @@ export async function POST(req: Request) {
     if (Object.keys(patch).length) await db.from('profiles').update(patch).eq('id', keepId);
 
     // Repoint the duplicate's orders + documents onto the survivor.
-    await db.from('customer_orders').update({ customer_id: keepId }).eq('customer_id', removeId);
     await db.from('customer_documents').update({ customer_id: keepId }).eq('customer_id', removeId);
 
     // Remove the duplicate profile (cascades its link requests) + its login.

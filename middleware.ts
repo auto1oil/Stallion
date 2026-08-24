@@ -23,22 +23,15 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
+  // Everything behind the sign-in. /home, /login, /reset-password, /no-access
+  // and the legal pages stay public.
   const isEmployeePath = path.startsWith('/admin') || path.startsWith('/driver') || path.startsWith('/tickets') || path.startsWith('/work-orders') || path.startsWith('/contractor') || path.startsWith('/funder') || path.startsWith('/settings') || path.startsWith('/tasks') || path.startsWith('/reminders') || path.startsWith('/messages');
-  // The /shop entry points (login + signup) are public; everything else
-  // under /shop requires a logged-in customer.
-  const isShopAuthedPath = path === '/shop' || path.startsWith('/shop/checkout') || path.startsWith('/shop/account') || path.startsWith('/shop/order') || path.startsWith('/shop/messages');
 
   if (isEmployeePath && !user) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
-  if (isShopAuthedPath && !user) {
-    return NextResponse.redirect(new URL('/shop/login', request.url));
-  }
   if (path === '/login' && user) {
     return NextResponse.redirect(new URL('/', request.url));
-  }
-  if ((path === '/shop/login' || path === '/shop/signup') && user) {
-    return NextResponse.redirect(new URL('/shop', request.url));
   }
 
   // Force password change on first login — employees only. Customers set

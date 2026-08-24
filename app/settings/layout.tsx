@@ -14,7 +14,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
     .eq('id', user.id)
     .single();
   if (!profile) redirect('/login');
-  if (profile.role === 'customer') redirect('/shop');
+  if (profile.role === 'customer') redirect('/no-access');
 
   return (
     <div className="min-h-screen bg-gray-50">

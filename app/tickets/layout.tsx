@@ -18,7 +18,7 @@ export default async function TicketsLayout({ children }: { children: React.Reac
     .eq('id', user.id)
     .single();
   if (!profile) redirect('/login');
-  if (profile.role === 'customer') redirect('/shop');
+  if (profile.role === 'customer') redirect('/no-access');
   if (profile.role === 'funder') redirect('/funder');
 
   const group = navGroupForRole(profile.role);

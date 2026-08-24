@@ -16,7 +16,7 @@ export default async function Home() {
   if (profile?.role === 'admin' || profile?.role === 'master_admin') redirect('/admin');
   if (profile?.role === 'contractor') redirect('/contractor');
   if (profile?.role === 'funder') redirect('/funder');
-  if (profile?.role === 'customer') redirect('/shop');
+  if (profile?.role === 'customer') redirect('/no-access');
   // Office reviews and invoices tickets. Labor is hourly staff, so their home
   // is the clock. Mechanics get the full driver experience (deliveries +
   // invoices), so they land on /driver.

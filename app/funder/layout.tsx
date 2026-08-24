@@ -23,7 +23,7 @@ export default async function FunderLayout({ children }: { children: React.React
   if (!profile) redirect('/login');
 
   if (!ALLOWED.includes(profile.role)) {
-    if (profile.role === 'customer') redirect('/shop');
+    if (profile.role === 'customer') redirect('/no-access');
     if (profile.role === 'contractor') redirect('/contractor');
     if (profile.role === 'office') redirect('/work-orders');
     redirect('/tickets');

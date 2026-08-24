@@ -165,8 +165,7 @@ export function ticketDescription(wo: WorkOrder): string {
 export type InvoiceOutcome = { status: number; body: Record<string, unknown> };
 
 // The QuickBooks item every work-order invoice line bills against. An admin
-// picks it once on the Work Orders setup screen; it lives in app_settings the
-// same way the trucking items do.
+// picks it once on the Work Orders setup screen.
 export async function getWorkOrderQbItem(db: SupabaseClient): Promise<{ id: string; name: string } | null> {
   const { data } = await db
     .from('app_settings')

@@ -31,7 +31,7 @@ type Order = {
   date: string;
   created_at: string | null;
   customer: string;
-  type: 'Fuel' | 'PCMO' | 'DEF' | 'Shipping' | 'Trucking';
+  type: 'Fuel' | 'PCMO' | 'DEF' | 'Shipping';
   driver_id: string | null;
   driver_name: string | null;
   sales_rep_id: string | null;
@@ -70,34 +70,11 @@ type Profile = { id: string; full_name: string | null; email: string; role?: str
 // Customer orders that have a QB invoice but haven't been sent to dispatch yet.
 // They render in the box at the top so an admin can hand them to drivers
 // without navigating back to the Customer Orders list.
-type ReadyOrder = {
-  id: string;
-  invoice_number: string | null;
-  invoice_pdf_path: string | null;
-  invoiced_at: string | null;
-  delivery_address: string | null;
-  notes: string | null;
-  customer_id: string;
-  submitted_by_id: string | null;
-  customer: { full_name: string | null; email: string; business_name: string | null } | null;
-  submitted_by: { full_name: string | null; email: string } | null;
-  customer_order_items: {
-    product_name: string;
-    container_size: string;
-    weight: string | null;
-    quantity: number;
-  }[];
-};
-
-// Cart product names that always belong on a Fuel-type dispatch order.
-const FUEL_NAMES = new Set(['Clear Fuel', 'Dyed Fuel', '85-Octane', '91-Octane']);
-
 export default function AdminOrdersPage() {
   const supabase = createClient();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [ready, setReady] = useState<ReadyOrder[]>([]);
   const [drivers, setDrivers] = useState<Profile[]>([]);
-  const [filter, setFilter] = useState<'for_approval' | OrderStatus | 'billed'>('warehouse');
+  const [filter, setFilter] = useState<OrderStatus | 'billed'>('warehouse');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,7 +86,7 @@ export default function AdminOrdersPage() {
 
   async function load() {
     setLoading(true);
-    const [ordsRes, drsRes, readyRes] = await Promise.all([
+    const [ordsRes, drsRes] = await Promise.all([
       supabase
         .from('orders')
         .select('*')
@@ -119,25 +96,9 @@ export default function AdminOrdersPage() {
         .from('profiles')
         .select('id, full_name, email, role')
         .order('full_name'),
-      // Customer orders awaiting approval — placed (pending) or invoiced but
-      // not yet handed off to a driver via a dispatch row. These fill the
-      // "For approval" tab; approving one creates the warehouse dispatch row.
-      supabase
-        .from('customer_orders')
-        .select(`
-          id, invoice_number, invoice_pdf_path, invoiced_at,
-          delivery_address, notes, customer_id, submitted_by_id,
-          customer:profiles!customer_orders_customer_id_fkey(full_name, email, business_name),
-          submitted_by:profiles!customer_orders_submitted_by_id_fkey(full_name, email),
-          customer_order_items(product_name, container_size, weight, quantity)
-        `)
-        .in('status', ['pending', 'invoiced'])
-        .is('dispatched_order_id', null)
-        .order('invoiced_at', { ascending: true, nullsFirst: false }),
     ]);
     setOrders((ordsRes.data as Order[]) || []);
     setDrivers((drsRes.data as Profile[]) || []);
-    setReady((readyRes.data as unknown as ReadyOrder[]) || []);
 
     // Special billing notes, matched to orders by customer/business name.
     const { data: bizRows } = await supabase
@@ -157,70 +118,6 @@ export default function AdminOrdersPage() {
 
   // Convert an invoiced customer order into a dispatch row. Same logic as
   // the per-order detail page's Step 2 button — duplicated here so the
-  // admin can do it inline from the ready-list without navigating away.
-  async function sendToDispatch(o: ReadyOrder, dispatchType: Order['type'], dispatchTruck: string) {
-    // Every order must be invoiced before it reaches the warehouse.
-    if (!o.invoice_number) {
-      alert('This order has no QuickBooks invoice yet. Open it and create the invoice first — every order needs an invoice before it goes to the warehouse.');
-      return;
-    }
-    const { data: { user } } = await supabase.auth.getUser();
-    const customerLabel =
-      o.customer?.business_name || o.customer?.full_name || o.customer?.email || 'Customer';
-
-    const itemSummary = o.customer_order_items
-      .map((it) => `${it.quantity} × ${it.product_name} (${it.container_size})`)
-      .join('\n');
-    const noteParts = [
-      `From customer order #${o.id.slice(0, 8)}`,
-      `Items:\n${itemSummary}`,
-    ];
-    if (o.notes) noteParts.push(`Customer notes: ${o.notes}`);
-    if (o.delivery_address) noteParts.push(`Deliver to: ${o.delivery_address}`);
-
-    // Carry the order placer's name onto the dispatch row so it stays
-    // visible through every delivery stage.
-    const placedByName =
-      o.submitted_by?.full_name || o.submitted_by?.email ||
-      o.customer?.full_name || o.customer?.email || null;
-
-    const { data: dispatchOrder, error: insErr } = await supabase
-      .from('orders')
-      .insert({
-        date: new Date().toISOString().split('T')[0],
-        customer: customerLabel,
-        type: dispatchType,
-        truck: dispatchTruck.trim() || null,
-        invoice_number: o.invoice_number,
-        invoice_pdf_path: o.invoice_pdf_path,
-        notes: noteParts.join('\n\n'),
-        created_by: user?.id || null,
-        placed_by: o.submitted_by_id || o.customer_id,
-        placed_by_name: placedByName,
-      })
-      .select('id')
-      .single();
-    if (insErr || !dispatchOrder) {
-      alert(insErr?.message || 'Could not create dispatch order.');
-      return;
-    }
-    await supabase.from('orders').update({ entry_method: 'placed' }).eq('id', dispatchOrder.id);
-    const { error: updErr } = await supabase
-      .from('customer_orders')
-      .update({
-        status: 'dispatched',
-        dispatched_order_id: dispatchOrder.id,
-        dispatched_at: new Date().toISOString(),
-      })
-      .eq('id', o.id);
-    if (updErr) {
-      alert(updErr.message);
-      return;
-    }
-    // Row leaves the ready box and joins the dispatch list below.
-    load();
-  }
-
   let filtered = orders;
   if (filter === 'warehouse' || filter === 'out_for_delivery') {
     filtered = orders.filter((o) => o.status === filter);
@@ -481,23 +378,19 @@ export default function AdminOrdersPage() {
         </div>
       </div>
 
-      {/* Status board: For approval → Warehouse → Out for delivery →
-          Delivered → Billed. */}
+      {/* Status board: Warehouse → Out for delivery → Delivered → Billed. */}
       <div className="flex gap-2 mb-4 flex-wrap">
         {([
-          { key: 'for_approval',     label: 'Pending' },
           { key: 'warehouse',        label: 'Warehouse' },
           { key: 'out_for_delivery', label: 'Out for delivery' },
           { key: 'delivered',        label: 'Delivered' },
           { key: 'billed',           label: 'Billed' },
         ] as const).map((f) => {
-          const count = f.key === 'for_approval'
-            ? ready.length
-            : f.key === 'billed'
-              ? orders.filter((o) => o.billed).length
-              : f.key === 'delivered'
-                ? orders.filter((o) => o.status === 'delivered' && !o.billed).length
-                : orders.filter((o) => o.status === f.key).length;
+          const count = f.key === 'billed'
+            ? orders.filter((o) => o.billed).length
+            : f.key === 'delivered'
+              ? orders.filter((o) => o.status === 'delivered' && !o.billed).length
+              : orders.filter((o) => o.status === f.key).length;
           return (
             <button
               key={f.key}
@@ -513,20 +406,7 @@ export default function AdminOrdersPage() {
         })}
       </div>
 
-      {filter === 'for_approval' ? (
-        loading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
-        ) : ready.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-12">No orders awaiting approval.</p>
-        ) : (
-          <div className="space-y-2">
-            {ready.map((o) => (
-              <ReadyRow key={o.id} order={o} onSend={sendToDispatch} />
-            ))}
-          </div>
-        )
-      ) : (
-        <>
+      <>
           {enhancedView && filtered.length > 0 && (
             <div className="flex items-center gap-3 mb-3 text-sm flex-wrap">
               <label className="flex items-center gap-1.5 text-gray-600">
@@ -572,8 +452,7 @@ export default function AdminOrdersPage() {
               ))}
             </div>
           )}
-        </>
-      )}
+      </>
 
       {showForm && (
         <OrderForm
@@ -588,103 +467,6 @@ export default function AdminOrdersPage() {
   );
 }
 
-// One row in the "Ready to send to dispatch" box. Keeps its own type/truck
-// state so multiple rows can be assigned without clobbering each other.
-function ReadyRow({
-  order,
-  onSend,
-}: {
-  order: ReadyOrder;
-  onSend: (o: ReadyOrder, type: Order['type'], truck: string) => Promise<void>;
-}) {
-  // Auto-detect: any fuel line on the order makes this a Fuel dispatch.
-  const hasFuel = order.customer_order_items.some((it) => FUEL_NAMES.has(it.product_name));
-  const [type, setType] = useState<Order['type']>(hasFuel ? 'Fuel' : 'PCMO');
-  const [truck, setTruck] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const customerName =
-    order.customer?.business_name || order.customer?.full_name || order.customer?.email;
-  const itemSummary =
-    order.customer_order_items
-      .slice(0, 3)
-      .map((it) => `${it.quantity}× ${it.product_name}`)
-      .join(', ') +
-    (order.customer_order_items.length > 3
-      ? `, +${order.customer_order_items.length - 3} more`
-      : '');
-
-  async function go() {
-    setBusy(true);
-    try { await onSend(order, type, truck); } finally { setBusy(false); }
-  }
-
-  return (
-    <div className="bg-white border border-amber-200 rounded-md p-3">
-      <div className="flex justify-between items-start gap-2 flex-wrap mb-2">
-        <div className="min-w-0">
-          <div className="font-medium">{customerName}</div>
-          <div className="text-xs text-gray-600">
-            {order.invoice_number ? <>Invoice #{order.invoice_number} · </> : null}
-            {itemSummary}
-          </div>
-        </div>
-        <Link
-          href={`/admin/customer-orders/${order.id}`}
-          className="text-xs text-brand-700 hover:underline whitespace-nowrap"
-        >
-          View order →
-        </Link>
-      </div>
-      {order.invoice_number ? (
-        <div className="flex gap-2 items-end flex-wrap">
-          <div>
-            <label className="block text-[10px] font-medium uppercase tracking-wide text-gray-500 mb-0.5">Type</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as Order['type'])}
-              className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white"
-            >
-              <option>Fuel</option>
-              <option>PCMO</option>
-              <option>DEF</option>
-              <option>Shipping</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-medium uppercase tracking-wide text-gray-500 mb-0.5">Truck</label>
-            <input
-              type="text"
-              value={truck}
-              onChange={(e) => setTruck(e.target.value)}
-              placeholder="optional"
-              className="px-2 py-1.5 border border-gray-300 rounded text-sm w-24"
-            />
-          </div>
-          <button
-            onClick={go}
-            disabled={busy}
-            className="px-3 py-1.5 bg-brand-700 text-white rounded text-sm hover:bg-brand-900 disabled:opacity-50 font-medium"
-          >
-            {busy ? 'Sending…' : 'Send to dispatch →'}
-          </button>
-        </div>
-      ) : (
-        // Every order needs an invoice before it can go to the warehouse. No
-        // invoice yet → send the admin to create it (skips nothing important).
-        <div className="flex items-center gap-3 flex-wrap bg-red-50 border border-red-200 rounded-md px-3 py-2">
-          <span className="text-xs font-medium text-red-700">No invoice yet — create it before dispatching.</span>
-          <Link
-            href={`/admin/customer-orders/${order.id}`}
-            className="px-3 py-1.5 bg-brand-700 text-white rounded text-sm hover:bg-brand-900 font-medium whitespace-nowrap"
-          >
-            Create invoice →
-          </Link>
-        </div>
-      )}
-    </div>
-  );
-}
 
 type DocKind = 'invoice' | 'signed';
 
@@ -812,11 +594,8 @@ function OrderCard({ order, enhanced, showBilling, billingNote, selected, onTogg
     );
   }
 
-  // Trucking invoices get an orange outline so they stand out in the Out for
-  // delivery / Delivered lists.
-  const isTrucking = order.type === 'Trucking';
   return (
-    <div className={`bg-white rounded-lg p-4 ${isTrucking ? 'border-2 border-orange-400' : `border ${order.status === 'delivered' ? 'border-gray-200 bg-gray-50' : 'border-gray-200'}`}`}>
+    <div className={`bg-white rounded-lg p-4 border ${order.status === 'delivered' ? 'border-gray-200 bg-gray-50' : 'border-gray-200'}`}>
       <div className="flex gap-3">
        <div className="flex-1 min-w-0">
       <div className="flex flex-wrap justify-between items-start gap-2 mb-2">
@@ -1057,7 +836,7 @@ function OrderForm({ order, drivers, reps, onClose, onSaved }: {
   const supabase = createClient();
   const [date, setDate] = useState(order?.date || new Date().toISOString().split('T')[0]);
   const [customer, setCustomer] = useState(order?.customer || '');
-  const [type, setType] = useState<'Fuel' | 'PCMO' | 'DEF' | 'Shipping' | 'Trucking'>(order?.type || 'Fuel');
+  const [type, setType] = useState<'Fuel' | 'PCMO' | 'DEF' | 'Shipping'>(order?.type || 'Fuel');
   const [driverId, setDriverId] = useState(order?.driver_id || '');
   const [salesRepId, setSalesRepId] = useState(order?.sales_rep_id || '');
   const [truck, setTruck] = useState(order?.truck || '');

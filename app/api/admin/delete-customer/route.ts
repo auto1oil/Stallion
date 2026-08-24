@@ -49,17 +49,9 @@ export async function POST(req: Request) {
 
     // Clear dependent rows, then the profile — all through the admin's session
     // (the section-22 delete policies permit master admins to do this).
-    await supabase.from('business_link_requests').delete().eq('profile_id', body.id);
     await supabase.from('customer_qb_mapping').delete().eq('profile_id', body.id);
     await supabase.from('customer_documents').delete().eq('customer_id', body.id);
     await supabase.from('notifications').delete().eq('recipient_id', body.id);
-
-    const { data: ords } = await supabase.from('customer_orders').select('id').eq('customer_id', body.id);
-    const orderIds = (ords || []).map((o) => o.id);
-    if (orderIds.length > 0) {
-      await supabase.from('customer_order_items').delete().in('customer_order_id', orderIds);
-      await supabase.from('customer_orders').delete().eq('customer_id', body.id);
-    }
 
     const { error: pErr } = await supabase.from('profiles').delete().eq('id', body.id);
     if (pErr) return NextResponse.json({ ok: false, error: `Profile delete failed: ${pErr.message}` }, { status: 500 });

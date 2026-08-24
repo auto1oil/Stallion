@@ -84,11 +84,48 @@ alter table public.profiles add constraint profiles_role_check
   check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin',
                   'customer', 'office', 'mechanic', 'labor'));
 
+-- ---- Trucking ------------------------------------------------------------
+-- Freight invoicing is gone; its fuel surcharge was driven by the EIA diesel
+-- price, which is why that table goes with it.
+drop table if exists public.trucking_commodities cascade;
+drop table if exists public.trucking_customers cascade;
+drop table if exists public.trucking_lanes cascade;
+drop table if exists public.eia_diesel_prices cascade;
+delete from public.app_settings where key like 'trucking_%';
+alter table public.orders drop column if exists bol_number;
+alter table public.orders drop column if exists bol_pdf_path;
+-- Any dispatch row still typed 'Trucking' becomes a plain shipping run before
+-- the type constraint is narrowed, or the constraint fails to validate.
+update public.orders set type = 'Shipping' where type = 'Trucking';
+alter table public.orders drop constraint if exists orders_type_check;
+alter table public.orders add constraint orders_type_check
+  check (type in ('Fuel', 'PCMO', 'DEF', 'Shipping'));
+
+-- ---- Customer storefront -------------------------------------------------
+-- No customer-facing side any more: no catalog, no customer-placed orders, no
+-- self-signup, no public support chat. Customer records stay — they're the
+-- directory the office invoices against.
+drop table if exists public.customer_order_items cascade;
+drop table if exists public.customer_orders cascade;
+drop table if exists public.product_qb_mapping cascade;
+drop table if exists public.products cascade;
+drop table if exists public.reorder_reminders cascade;
+drop table if exists public.business_invites cascade;
+drop table if exists public.business_link_requests cascade;
+drop table if exists public.support_messages cascade;
+drop table if exists public.support_sessions cascade;
+drop function if exists public.search_businesses(text) cascade;
+drop function if exists public.get_invite_by_token(text) cascade;
+drop function if exists public.accept_invite(text) cascade;
+drop function if exists public.notify_admins_on_customer_order() cascade;
+
 -- ---- Feature flags for tabs that no longer exist -------------------------
 delete from public.feature_flags
  where key like 'salesman:%'
     or key in (
       'admin:/admin/sales-log', 'admin:/admin/fuel-prices', 'admin:/admin/fuel-history',
       'admin:/admin/inventory', 'admin:/admin/bills', 'admin:/admin/card-charges',
-      'driver:/driver/inventory', 'driver:/salesman/order'
+      'driver:/driver/inventory', 'driver:/salesman/order',
+      'admin:/admin/customer-orders', 'admin:/admin/chat-logs',
+      'admin:/admin/trucking', 'driver:/driver/trucking'
     );

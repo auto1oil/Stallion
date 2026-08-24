@@ -123,12 +123,6 @@ export async function POST(req: Request) {
       ? await rebuildInvoiceLines(invoice, body.lines!, body.charge_tax)
       : await updateInvoiceLines(invoice, body.edits!);
 
-    // Remember the choice on the linked customer order so re-invoicing keeps it.
-    if (typeof body.charge_tax === 'boolean') {
-      await createAdminClient().from('customer_orders')
-        .update({ charge_tax: body.charge_tax }).eq('dispatched_order_id', body.order_id);
-    }
-
     // Re-download the corrected PDF and replace the stored one.
     let pdfPath: string | null = null;
     try {

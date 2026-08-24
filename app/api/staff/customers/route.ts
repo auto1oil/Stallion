@@ -79,24 +79,11 @@ export async function GET() {
     docsByProf.set(d.customer_id, s);
   }
 
-  // In-app order days + invoices, by business.
-  const { data: ords } = await db
-    .from('customer_orders')
-    .select('customer_id, created_at, invoice_number, invoice_pdf_path, invoiced_at');
+  // The customer-facing store is gone, so there are no in-app orders to blend
+  // in: order cadence and invoice history now come from the QuickBooks fields
+  // cached on the business row (qb_recent_invoice_dates, qb_last_purchase_date).
   const appDaysByBiz = new Map<string, string[]>();
   const invoicesByBiz = new Map<string, { number: string | null; date: string | null; path: string }[]>();
-  for (const o of (ords || []) as { customer_id: string; created_at: string; invoice_number: string | null; invoice_pdf_path: string | null; invoiced_at: string | null }[]) {
-    const biz = profIdToBiz.get(o.customer_id);
-    if (!biz) continue;
-    const arr = appDaysByBiz.get(biz) || [];
-    arr.push((o.created_at || '').slice(0, 10));
-    appDaysByBiz.set(biz, arr);
-    if (o.invoice_pdf_path) {
-      const inv = invoicesByBiz.get(biz) || [];
-      inv.push({ number: o.invoice_number, date: o.invoiced_at || o.created_at, path: o.invoice_pdf_path });
-      invoicesByBiz.set(biz, inv);
-    }
-  }
 
   const cutoff = Date.now() - ORDER_WINDOW_DAYS * 86_400_000;
   const out = businesses.map((b) => {

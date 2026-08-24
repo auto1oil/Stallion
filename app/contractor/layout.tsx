@@ -22,7 +22,7 @@ export default async function ContractorLayout({ children }: { children: React.R
   if (!profile) redirect('/login');
 
   if (!ALLOWED.includes(profile.role)) {
-    if (profile.role === 'customer') redirect('/shop');
+    if (profile.role === 'customer') redirect('/no-access');
     if (profile.role === 'funder') redirect('/funder');
     if (profile.role === 'office') redirect('/work-orders');
     redirect('/tickets');

@@ -248,17 +248,6 @@ type DocStatus = {
   doc_type: 'profile_sheet' | 'tax_exempt' | 'fein';
 };
 
-// A new signup claiming an existing business — sits here until admin
-// approves or rejects via /api/business/[approve|reject]-link.
-type LinkRequest = {
-  id: string;
-  created_at: string;
-  claimed_name: string | null;
-  claimed_address: string | null;
-  profile: { id: string; full_name: string | null; email: string; phone: string | null } | null;
-  business: { id: string; name: string; address: string | null } | null;
-};
-
 const DOC_LABELS: Record<DocStatus['doc_type'], string> = {
   profile_sheet: 'Profile',
   tax_exempt:    'TC-721',
@@ -269,11 +258,9 @@ export default function AdminCustomersPage() {
   const supabase = createClient();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [docs, setDocs] = useState<DocStatus[]>([]);
-  const [linkRequests, setLinkRequests] = useState<LinkRequest[]>([]);
   const [reps, setReps] = useState<SalesRep[]>([]);
   const [allBusinesses, setAllBusinesses] = useState<{ id: string; name: string; qb_customer_id: string | null }[]>([]);
   const [linkBusy, setLinkBusy] = useState<string | null>(null);
-  const [reviewBusy, setReviewBusy] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncResult, setSyncResult] = useState('');
   const [loading, setLoading] = useState(true);
@@ -292,9 +279,6 @@ export default function AdminCustomersPage() {
   const [meRole, setMeRole] = useState<string | null>(null);
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
   const [autoInvoiceByBiz, setAutoInvoiceByBiz] = useState<Map<string, boolean>>(new Map());
-  // In-app order dates (customer_orders.created_at) grouped by customer id,
-  // merged with cached QB invoice dates for the order-cadence + past-orders UI.
-  const [appOrdersByCust, setAppOrdersByCust] = useState<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -334,7 +318,7 @@ export default function AdminCustomersPage() {
 
   async function load() {
     setLoading(true);
-    const [cust, docsRes, lrRes, repsRes, bizRes, spRes, ordersRes] = await Promise.all([
+    const [cust, docsRes, repsRes, bizRes, spRes] = await Promise.all([
       supabase
         .from('profiles')
         .select(`
@@ -353,15 +337,6 @@ export default function AdminCustomersPage() {
         .from('customer_documents')
         .select('customer_id, doc_type'),
       supabase
-        .from('business_link_requests')
-        .select(`
-          id, created_at, claimed_name, claimed_address,
-          profile:profiles!business_link_requests_profile_id_fkey(id, full_name, email, phone),
-          business:businesses!business_link_requests_business_id_fkey(id, name, address)
-        `)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: true }),
-      supabase
         .from('profiles')
         .select('id, full_name, email')
         .neq('role', 'customer')
@@ -375,11 +350,6 @@ export default function AdminCustomersPage() {
       supabase
         .from('businesses')
         .select('id, auto_invoice_orders'),
-      // In-app order dates, newest-first, for the order-cadence bubble.
-      supabase
-        .from('customer_orders')
-        .select('customer_id, created_at')
-        .order('created_at', { ascending: false }),
     ]);
     // PostgREST returns the joined `business` as an array; collapse it to the
     // single row we expect (since profile.business_id is a 1:1 FK).
@@ -388,17 +358,7 @@ export default function AdminCustomersPage() {
       business: Array.isArray(c.business) ? c.business[0] || null : c.business || null,
     }));
     setCustomers(rows as Customer[]);
-    // Group in-app order dates by customer (already newest-first from the query).
-    const omap = new Map<string, string[]>();
-    for (const o of (ordersRes.data as { customer_id: string | null; created_at: string }[]) || []) {
-      if (!o.customer_id) continue;
-      const list = omap.get(o.customer_id);
-      if (list) list.push(o.created_at);
-      else omap.set(o.customer_id, [o.created_at]);
-    }
-    setAppOrdersByCust(omap);
     setDocs((docsRes.data as DocStatus[]) || []);
-    setLinkRequests((lrRes.data as unknown as LinkRequest[]) || []);
     setReps((repsRes.data as SalesRep[]) || []);
     setAllBusinesses((bizRes.data as { id: string; name: string; qb_customer_id: string | null }[]) || []);
     // Auto-invoice flags from the dedicated query (empty if the column
@@ -646,39 +606,6 @@ export default function AdminCustomersPage() {
 
   useEffect(() => { load(); }, []);
 
-  async function approveLink(id: string) {
-    setReviewBusy(id);
-    const res = await fetch('/api/business/approve-link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ request_id: id }),
-    });
-    const json = await res.json();
-    setReviewBusy(null);
-    if (!json.ok) {
-      alert(json.error || 'Approval failed.');
-      return;
-    }
-    load();
-  }
-
-  async function rejectLink(id: string) {
-    const note = prompt('Optional note for the customer (or leave blank):') || '';
-    setReviewBusy(id);
-    const res = await fetch('/api/business/reject-link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ request_id: id, note }),
-    });
-    const json = await res.json();
-    setReviewBusy(null);
-    if (!json.ok) {
-      alert(json.error || 'Rejection failed.');
-      return;
-    }
-    load();
-  }
-
   function docsFor(customerId: string): Set<DocStatus['doc_type']> {
     return new Set(
       docs.filter((d) => d.customer_id === customerId).map((d) => d.doc_type),
@@ -891,65 +818,6 @@ export default function AdminCustomersPage() {
         </p>
       )}
 
-      {/* Account-link approval queue — sits up top so it's never missed. */}
-      {linkRequests.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-          <h2 className="font-semibold text-amber-900 mb-3">
-            Account link requests
-            <span className="font-normal text-amber-800/70"> ({linkRequests.length})</span>
-          </h2>
-          <p className="text-xs text-amber-900/80 mb-3">
-            New signups claiming an existing business. Approve to link their profile;
-            reject if you don&apos;t recognize them.
-          </p>
-          <div className="space-y-2">
-            {linkRequests.map((r) => (
-              <div key={r.id} className="bg-white border border-amber-200 rounded-md p-3">
-                <div className="flex justify-between items-start gap-2 flex-wrap mb-2">
-                  <div className="min-w-0">
-                    <div className="text-sm">
-                      <span className="font-medium">
-                        {r.profile?.full_name || r.profile?.email || 'Unknown user'}
-                      </span>
-                      <span className="text-gray-600"> ({r.profile?.email})</span>
-                    </div>
-                    <div className="text-xs text-gray-600 mt-0.5">
-                      {r.profile?.phone && <>{r.profile.phone} · </>}
-                      Requested {new Date(r.created_at).toLocaleDateString('en-US', { dateStyle: 'medium' })}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs bg-amber-50 border border-amber-100 rounded p-2 mb-3">
-                  <div className="font-medium text-amber-900">Claiming:</div>
-                  <div className="text-amber-900">{r.business?.name || r.claimed_name}</div>
-                  {(r.business?.address || r.claimed_address) && (
-                    <div className="text-amber-900/80 whitespace-pre-wrap">
-                      {r.business?.address || r.claimed_address}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => approveLink(r.id)}
-                    disabled={reviewBusy === r.id}
-                    className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded hover:bg-brand-900 disabled:opacity-50 font-medium"
-                  >
-                    {reviewBusy === r.id ? 'Working…' : 'Approve link'}
-                  </button>
-                  <button
-                    onClick={() => rejectLink(r.id)}
-                    disabled={reviewBusy === r.id}
-                    className="px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4 space-y-3">
         <input
           type="text"
@@ -1021,7 +889,6 @@ export default function AdminCustomersPage() {
             const missing = missingItems(c);
             // Order cadence = in-app orders + recent QB invoices, deduped by day.
             const cadence = orderCadence([
-              ...(appOrdersByCust.get(c.id) || []),
               ...(biz?.qb_recent_invoice_dates || []),
             ]);
             // Inactive = most recent order/invoice is over 9 months old (unless
@@ -1030,7 +897,6 @@ export default function AdminCustomersPage() {
             // box renders grayscale (even the colored bubbles) right away.
             const lastActivity = latestDay([
               lastPurchase,
-              ...(appOrdersByCust.get(c.id) || []),
               ...(biz?.qb_recent_invoice_dates || []),
             ]);
             // Inactive when an admin manually deactivated it OR it's auto-stale

@@ -24,10 +24,7 @@ export default function HomePage() {
           </p>
           <div className="mt-6 flex gap-3 justify-center flex-wrap">
             <Link href="/login" className="px-5 py-2.5 bg-accent-400 text-brand-900 rounded-md font-semibold hover:bg-accent-500">
-              Crew &amp; staff sign in
-            </Link>
-            <Link href="/shop/login" className="px-5 py-2.5 bg-white text-brand-900 rounded-md font-semibold hover:bg-gray-100">
-              Customer login
+              Sign in
             </Link>
           </div>
         </div>
@@ -68,8 +65,8 @@ export default function HomePage() {
         <section>
           <h2 className="text-2xl font-bold text-brand-900 mb-3">Contact</h2>
           <p className="text-gray-700">
-            Phone, email, and address go here. Or use the <strong>Chat with us</strong> button
-            in the corner of the screen.
+            {/* TODO(content): real phone, email, address. */}
+            Phone, email, and address go here.
           </p>
         </section>
       </main>

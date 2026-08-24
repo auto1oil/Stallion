@@ -39,7 +39,11 @@ typed in and trusted.
 | `funder` | `/funder` | Every order, truck count per job, approve funds |
 | `admin` / `master_admin` | everything | Full access, users, settings |
 | `mechanic` / `labor` | time clock | Clock in/out, tasks, reminders |
-| `customer` | `/shop` | The customer-facing ordering side |
+
+`customer` still exists as a role, but only as a directory record: customers are
+who the office invoices against, synced from QuickBooks. Nobody signs in as one —
+there is no customer-facing side. A customer login that does reach the app lands
+on `/no-access`.
 
 Approvals never go through the browser's own write path: every status move
 posts to `/api/work-orders/[id]/approve`, which checks the caller's role and
@@ -102,7 +106,6 @@ Import the repo, then set the environment variables from
 | `QUICKBOOKS_CLIENT_ID` / `QUICKBOOKS_CLIENT_SECRET` | From your Intuit app |
 | `QUICKBOOKS_REDIRECT_URI` | `<your URL>/api/quickbooks/callback` |
 | `QUICKBOOKS_ENV` | `sandbox` or `production` |
-| `EIA_API_KEY` | Optional — weekly diesel price for the trucking surcharge |
 
 ### 4 — QuickBooks
 
@@ -125,9 +128,10 @@ The app name is in `app/layout.tsx` and `public/manifest.webmanifest`.
 
 If you're pointing this at a Supabase project that already ran the old Auto 1
 schema, run `migrations/001-drop-removed-features.sql` **after** deploying this
-code. It drops the salesman, fuel, inventory, bills, and card-charge tables,
-moves any remaining `salesman` users to `office`, and widens the role check to
-include `contractor` and `funder`. On a fresh project it is a no-op.
+code. It drops the salesman, fuel, inventory, bills, card-charge, trucking and
+customer-storefront tables, moves any remaining `salesman` users to `office`,
+and widens the role check to include `contractor` and `funder`. On a fresh
+project it is a no-op.
 
 ## Repo map
 
@@ -138,6 +142,7 @@ include `contractor` and `funder`. On a fresh project it is a no-op.
 | `app/contractor` | Contractor work orders, approvals, rates |
 | `app/funder` | Funder orders + approve funds |
 | `app/api/work-orders` | Ticket CRUD, approvals, invoicing |
+| `app/admin` | Dispatch board, customers, hours, users, PO log, QuickBooks |
 | `lib/work-orders.ts` | Hour/amount math and the QuickBooks invoice routine |
 | `lib/quickbooks*.ts` | QuickBooks OAuth, customers, invoices, PDFs |
 | `supabase-setup.sql` | The canonical, re-runnable schema |

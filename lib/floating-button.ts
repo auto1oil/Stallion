@@ -32,7 +32,6 @@ export const FAB_ACTIONS: FabAction[] = (() => {
   const out: FabAction[] = [...SHORTCUTS];
   const seen = new Set(out.map((a) => a.href));
   for (const f of FEATURES) {
-    if (f.group === 'customer') continue;            // staff button — skip shop tabs
     const href = f.key.slice(f.group.length + 1);    // "group:href" → href
     if (seen.has(href)) continue;
     seen.add(href);
