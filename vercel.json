@@ -1,8 +1,24 @@
 {
   "crons": [
-    { "path": "/api/cron/sync-balances", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/reminders", "schedule": "0 13 * * *" },
-    { "path": "/api/cron/deactivate-customers", "schedule": "0 10 * * *" },
-    { "path": "/api/cron/admin-tasks-due", "schedule": "0 15 * * *" }
+    {
+      "path": "/api/cron/sync-balances",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/reminders",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/deactivate-customers",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/admin-tasks-due",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-eia",
+      "schedule": "0 13 * * 2"
+    }
   ]
 }

@@ -1,5 +1,5 @@
 -- ==========================================================================
--- Auto1 Oil Dispatch — Database Setup (canonical, idempotent)
+-- Stallion Field Tickets — Database Setup (canonical, idempotent)
 -- ==========================================================================
 -- Run this entire file in the Supabase SQL Editor when setting up a fresh
 -- project. Safe to re-run on an existing project — uses `if not exists`,
@@ -43,20 +43,23 @@ $$;
 -- ==========================================================================
 -- Roles:
 --   customer      — default for public shop signups; sees /shop
---   driver        — delivery driver (admin-created); sees /driver
---   salesman      — field sales (admin-created); sees /salesman
+--   driver        — field crew: fills out work tickets; sees /tickets
+--   office        — reviews, approves and invoices tickets; sees /work-orders
+--   contractor    — sees their crews' tickets + rates; sees /contractor
+--   funder        — Auto 1: sees every order, approves funds; sees /funder
 --   admin         — full access except hiring master_admins; sees /admin
 --   master_admin  — can do everything including delete delivery log entries
+--   mechanic / labor — hourly staff (time clock, tasks, reminders)
 --
--- phone is used by the salesman end-of-day SMS feature to figure out who
--- to text the summary to (all admins with a phone number on file).
+-- phone is used by the end-of-day SMS summary to figure out who to text
+-- (all admins with a phone number on file).
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   full_name text,
   role text not null default 'customer'
-    check (role in ('admin', 'driver', 'salesman', 'master_admin', 'customer', 'office', 'mechanic', 'labor')),
+    check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin', 'customer', 'office', 'mechanic', 'labor')),
   phone text,
   -- Optional contact email shown on quotes (falls back to the login email).
   contact_email text,
@@ -67,8 +70,7 @@ alter table public.profiles add column if not exists contact_email text;
 
 -- Customer-specific columns are added piecemeal so the canonical setup stays
 -- additive and idempotent on existing projects. `city` (added below) is used
--- alongside business_name to match logged sales visits to customer accounts
--- on the /salesman/businesses tab.
+-- alongside business_name to match customer accounts to their locations.
 alter table public.profiles add column if not exists city text;
 
 -- Allow the 'customer' role and make it the default for new profiles. This is
@@ -79,7 +81,7 @@ alter table public.profiles add column if not exists city text;
 -- 'driver' (giving customers staff access and bouncing them to /driver).
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check
-  check (role in ('admin', 'driver', 'salesman', 'master_admin', 'customer', 'office', 'mechanic', 'labor'));
+  check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin', 'customer', 'office', 'mechanic', 'labor'));
 alter table public.profiles alter column role set default 'customer';
 
 -- Auto-create a profile row whenever someone signs up via Supabase Auth.
@@ -89,7 +91,7 @@ language plpgsql
 security definer
 as $$
 begin
-  -- New auth signups are always customers. Staff roles (driver/salesman/admin)
+  -- New auth signups are always customers. Staff roles (driver/office/admin)
   -- are never self-assignable: the admin "add user" API creates the auth user
   -- and then updates this row to the chosen staff role. Hardcoding 'customer'
   -- here keeps a public signup from provisioning itself staff access, and makes
@@ -287,27 +289,6 @@ create policy "tcp own read" on public.time_clock_pings for select to authentica
 
 
 -- ==========================================================================
--- 5. fuel_prices — small key-value table used by the fuel-prices widget
--- ==========================================================================
-
-create table if not exists public.fuel_prices (
-  id text primary key,
-  label text not null,
-  price numeric,
-  updated_at timestamptz default now(),
-  updated_by uuid references public.profiles(id) on delete set null
-);
-
--- Seed the four standard rows (idempotent).
-insert into public.fuel_prices (id, label) values
-  ('reg', 'Regular'),
-  ('mid', 'Midgrade'),
-  ('prem', 'Premium'),
-  ('diesel', 'Diesel')
-on conflict (id) do nothing;
-
-
--- ==========================================================================
 -- 6. delivery_log — append-only audit log of deliveries
 -- ==========================================================================
 -- Populated automatically by the on_order_delivered trigger whenever an
@@ -356,29 +337,6 @@ create trigger on_order_delivered
 
 
 -- ==========================================================================
--- 7. salesman_visits — sales calls logged from the field
--- ==========================================================================
-
-create table if not exists public.salesman_visits (
-  id uuid primary key default gen_random_uuid(),
-  salesman_id uuid references public.profiles(id) on delete set null,
-  salesman_name text not null,
-  business_name text not null,
-  city text,
-  contact_person text,
-  notes text,
-  visit_date date not null default current_date,
-  visit_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
-);
-
-create index if not exists salesman_visits_date_idx
-  on public.salesman_visits(visit_date desc);
-create index if not exists salesman_visits_salesman_idx
-  on public.salesman_visits(salesman_id);
-
-
--- ==========================================================================
 -- 8. Table grants for the `authenticated` role
 -- ==========================================================================
 -- IMPORTANT: Supabase does NOT auto-grant CRUD on tables created via raw
@@ -390,9 +348,7 @@ create index if not exists salesman_visits_salesman_idx
 grant select, insert, update, delete on public.profiles        to authenticated;
 grant select, insert, update, delete on public.orders          to authenticated;
 grant select, insert, update, delete on public.hours           to authenticated;
-grant select, update                 on public.fuel_prices     to authenticated;
 grant select, insert, delete         on public.delivery_log    to authenticated;
-grant select, insert, update, delete on public.salesman_visits to authenticated;
 
 
 -- ==========================================================================
@@ -402,9 +358,7 @@ grant select, insert, update, delete on public.salesman_visits to authenticated;
 alter table public.profiles        enable row level security;
 alter table public.orders          enable row level security;
 alter table public.hours           enable row level security;
-alter table public.fuel_prices     enable row level security;
 alter table public.delivery_log    enable row level security;
-alter table public.salesman_visits enable row level security;
 
 
 -- ==========================================================================
@@ -468,15 +422,6 @@ create policy "Admins delete hours"     on public.hours
 create policy "Drivers delete own hours" on public.hours
   for delete using (employee_id = auth.uid());
 
--- ---- fuel_prices ----
-drop policy if exists "auth_users_view_fuel_prices" on public.fuel_prices;
-drop policy if exists "admins_update_fuel_prices"   on public.fuel_prices;
-
-create policy "auth_users_view_fuel_prices" on public.fuel_prices
-  for select to authenticated using (true);
-create policy "admins_update_fuel_prices"   on public.fuel_prices
-  for update to authenticated using (public.is_admin()) with check (public.is_admin());
-
 -- ---- delivery_log ----
 drop policy if exists "auth_users_view_delivery_log"    on public.delivery_log;
 drop policy if exists "auth_users_insert_delivery_log"  on public.delivery_log;
@@ -492,45 +437,6 @@ create policy "master_admins_delete_delivery_log" on public.delivery_log
             where id = auth.uid() and role = 'master_admin')
   );
 
--- ---- salesman_visits ----
-drop policy if exists "Salesmen view their own visits"   on public.salesman_visits;
-drop policy if exists "Salesmen view all visits"         on public.salesman_visits;
-drop policy if exists "Admins view all visits"           on public.salesman_visits;
-drop policy if exists "Salesmen insert their own visits" on public.salesman_visits;
-drop policy if exists "Salesmen update their own visits" on public.salesman_visits;
-drop policy if exists "Admins update any visit"          on public.salesman_visits;
-drop policy if exists "Salesmen delete their own visits" on public.salesman_visits;
-drop policy if exists "Admins delete any visit"          on public.salesman_visits;
-
--- Salesmen can see every other salesman's visits so the Businesses tab can
--- answer "when did anyone last drop in on this account?". Writes are still
--- restricted to own rows below.
-create policy "Salesmen view all visits"         on public.salesman_visits
-  for select using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'admin', 'master_admin'))
-  );
-create policy "Admins view all visits"           on public.salesman_visits
-  for select using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('admin', 'master_admin'))
-  );
-create policy "Salesmen insert their own visits" on public.salesman_visits
-  for insert with check (salesman_id = auth.uid());
-create policy "Salesmen update their own visits" on public.salesman_visits
-  for update using (salesman_id = auth.uid()) with check (salesman_id = auth.uid());
-create policy "Admins update any visit"          on public.salesman_visits
-  for update using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('admin', 'master_admin'))
-  );
-create policy "Salesmen delete their own visits" on public.salesman_visits
-  for delete using (salesman_id = auth.uid());
-create policy "Admins delete any visit"          on public.salesman_visits
-  for delete using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('admin', 'master_admin'))
-  );
 
 
 -- ==========================================================================
@@ -591,7 +497,7 @@ create index if not exists businesses_name_idx on public.businesses(lower(name))
 
 -- Activity / deactivation. A business is auto-deactivated once it hasn't ordered
 -- in over nine months (nightly /api/cron/deactivate-customers). Inactive ones
--- render shaded everywhere (admin, salesman, driver). A new order auto-
+-- render shaded everywhere (admin, office, driver). A new order auto-
 -- reactivates; admins/master admins can reactivate manually (sets
 -- reactivated_at, which grants a fresh nine-month grace). last_activity_date is
 -- the most recent order/invoice date, cached for display + the shading logic.
@@ -663,6 +569,7 @@ alter table public.business_invites enable row level security;
 
 drop policy if exists businesses_admin_all       on public.businesses;
 drop policy if exists businesses_salesman_read   on public.businesses;
+drop policy if exists businesses_staff_read      on public.businesses;
 drop policy if exists businesses_member_read     on public.businesses;
 drop policy if exists businesses_customer_insert on public.businesses;
 drop policy if exists businesses_owner_update    on public.businesses;
@@ -672,9 +579,11 @@ create policy businesses_admin_all on public.businesses
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','master_admin')))
   with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','master_admin')));
 
-create policy businesses_salesman_read on public.businesses
+-- Office, contractors and funders read the customer directory so they can
+-- review and invoice work orders against it.
+create policy businesses_staff_read on public.businesses
   for select to authenticated
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'salesman'));
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('office','contractor','funder')));
 
 create policy businesses_member_read on public.businesses
   for select to authenticated
@@ -871,69 +780,18 @@ alter table public.orders
 update public.orders set status = 'delivered' where delivered = true  and status <> 'delivered';
 update public.orders set status = 'warehouse' where delivered = false and status <> 'warehouse' and status <> 'out_for_delivery';
 
--- Sales-rep visit requests + reorder reminders (table grants + GRANTs).
--- See later sections for table/RLS definitions; this block exists so the
--- canonical setup grants line up alongside the other table grants above.
-grant select, insert, update, delete on public.salesman_visit_requests to authenticated;
-grant select, insert, update, delete on public.reorder_reminders       to authenticated;
+-- Reorder reminders (table grants). See later sections for the table/RLS
+-- definitions; this block exists so the canonical setup grants line up
+-- alongside the other table grants above.
+grant select, insert, update, delete on public.reorder_reminders to authenticated;
 
 -- Going forward, any new public table created by a SQL migration should
 -- be reachable by the authenticated role by default.
 alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
 
--- Ping the sales rep when a customer (or admin) places an order with
--- them assigned, so they don't accidentally visit the customer the
--- same day to ask for an order that was just placed. Skips the case
--- where the rep is the one who placed the order themselves.
-create or replace function public.notify_salesman_on_new_order()
-returns trigger
-language plpgsql security definer set search_path = public as $$
-declare
-  cust record;
-  biz_name text;
-  placer record;
-  ordered_by_label text;
-begin
-  if new.sales_rep_id is null then return new; end if;
-  if new.submitted_by_id is not null and new.submitted_by_id = new.sales_rep_id then return new; end if;
-
-  select id, full_name, email, business_id into cust
-    from public.profiles where id = new.customer_id;
-  if not found then return new; end if;
-
-  if cust.business_id is not null then
-    select name into biz_name from public.businesses where id = cust.business_id;
-  end if;
-  biz_name := coalesce(biz_name, cust.full_name, cust.email);
-
-  if new.submitted_by_id is not null and new.submitted_by_id <> new.customer_id then
-    select full_name, email into placer from public.profiles where id = new.submitted_by_id;
-    ordered_by_label := 'Placed by ' || coalesce(placer.full_name, placer.email);
-  else
-    ordered_by_label := 'Placed by ' || coalesce(cust.full_name, cust.email);
-  end if;
-
-  insert into public.notifications (recipient_id, kind, title, body, link)
-  values (
-    new.sales_rep_id,
-    'new_order_with_rep',
-    'New order — ' || biz_name,
-    ordered_by_label || '. No need to visit today.',
-    '/salesman'
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_notify_salesman_on_new_order on public.customer_orders;
-create trigger trg_notify_salesman_on_new_order
-  after insert on public.customer_orders
-  for each row
-  execute function public.notify_salesman_on_new_order();
-
 -- Territory by county — replaces the older per-city scheme. Any user
--- (salesman, admin, master_admin) can have a list of approved counties;
+-- (office, admin, master_admin) can have a list of approved counties;
 -- customers carry their own county so the match is a direct array check.
 -- Default = all four counties so a brand-new user shows up everywhere
 -- until admin toggles a county off.
@@ -958,7 +816,7 @@ returns table (id uuid, full_name text, email text, territory_counties text[])
 language sql security definer set search_path = public as $$
   select p.id, p.full_name, p.email, p.territory_counties
   from public.profiles p
-  where p.role in ('salesman','admin','master_admin')
+  where p.role in ('office','admin','master_admin')
     and (
       coalesce(array_length(p.territory_counties, 1), 0) = 0
       or county_in is null
@@ -974,92 +832,6 @@ grant execute on function public.salesmen_for_county(text) to authenticated;
 alter table public.businesses
   add column if not exists qb_payment_method text,
   add column if not exists qb_payment_terms text;
-
-
--- ==========================================================================
--- 14. Business cards — one photo per visited business
--- ==========================================================================
--- The "Customers Visited" tab buckets salesman_visits by a normalized
--- name+city key. There is no persistent row per bucket, so business-card
--- photos are stored in their own table keyed by that same string. Images
--- are compressed client-side (resized + JPEG) before upload to keep the
--- bucket tiny.
-
-create table if not exists public.business_cards (
-  business_key  text primary key,
-  business_name text,
-  file_path     text not null,
-  uploaded_by   uuid references public.profiles(id) on delete set null,
-  uploaded_at   timestamptz not null default now()
-);
-
-grant select, insert, update, delete on public.business_cards to authenticated;
-alter table public.business_cards enable row level security;
-
-drop policy if exists "Reps view business cards"   on public.business_cards;
-drop policy if exists "Reps insert business cards"  on public.business_cards;
-drop policy if exists "Reps update business cards"  on public.business_cards;
-drop policy if exists "Reps delete business cards"  on public.business_cards;
-
-create policy "Reps view business cards" on public.business_cards
-  for select using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'admin', 'master_admin'))
-  );
-create policy "Reps insert business cards" on public.business_cards
-  for insert with check (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'admin', 'master_admin'))
-  );
-create policy "Reps update business cards" on public.business_cards
-  for update using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'admin', 'master_admin'))
-  ) with check (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'admin', 'master_admin'))
-  );
-create policy "Reps delete business cards" on public.business_cards
-  for delete using (
-    exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'admin', 'master_admin'))
-  );
-
--- Storage bucket for the (already-compressed) card images. Private; only
--- signed-in reps read/write. If your project blocks bucket creation via
--- SQL, make it manually in Storage → New bucket ("business-cards", Public off).
-insert into storage.buckets (id, name, public)
-values ('business-cards', 'business-cards', false)
-on conflict (id) do nothing;
-
-drop policy if exists "Reps read business cards"   on storage.objects;
-drop policy if exists "Reps upload business cards" on storage.objects;
-drop policy if exists "Reps update business cards storage" on storage.objects;
-drop policy if exists "Reps delete business cards storage" on storage.objects;
-
-create policy "Reps read business cards"
-  on storage.objects for select
-  using (bucket_id = 'business-cards' and exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('salesman', 'admin', 'master_admin')));
-
-create policy "Reps upload business cards"
-  on storage.objects for insert
-  with check (bucket_id = 'business-cards' and exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('salesman', 'admin', 'master_admin')));
-
-create policy "Reps update business cards storage"
-  on storage.objects for update
-  using (bucket_id = 'business-cards' and exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('salesman', 'admin', 'master_admin')));
-
-create policy "Reps delete business cards storage"
-  on storage.objects for delete
-  using (bucket_id = 'business-cards' and exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('salesman', 'admin', 'master_admin')));
 
 
 -- ==========================================================================
@@ -1373,10 +1145,10 @@ drop policy if exists "Staff read customer_orders" on public.customer_orders;
 create policy "Staff read customer_orders" on public.customer_orders
   for select to authenticated using (
     exists (select 1 from public.profiles
-            where id = auth.uid() and role in ('salesman', 'driver', 'mechanic', 'admin', 'master_admin'))
+            where id = auth.uid() and role in ('office', 'driver', 'mechanic', 'contractor', 'admin', 'master_admin'))
   );
 
--- Any staff member (salesman / driver / mechanic / office / labor / admin) may
+-- Any staff member (office / driver / mechanic / contractor / funder / labor / admin) may
 -- PLACE a customer order. The business rule is simply "staff can place orders";
 -- we deliberately do NOT also require submitted_by_id = auth.uid(), because an
 -- older cached app bundle can send a stale submitted_by_id and that value is
@@ -1389,7 +1161,7 @@ create policy "Staff place customer_orders" on public.customer_orders
   for insert to authenticated with check (
     exists (select 1 from public.profiles
             where id = auth.uid()
-              and role in ('salesman', 'driver', 'mechanic', 'office', 'labor', 'admin', 'master_admin'))
+              and role in ('office', 'driver', 'mechanic', 'contractor', 'funder', 'labor', 'admin', 'master_admin'))
   );
 
 -- ...and the line items on those orders. Same rule: any staff member may add
@@ -1399,7 +1171,7 @@ create policy "Staff add customer_order_items" on public.customer_order_items
   for insert to authenticated with check (
     exists (select 1 from public.profiles
             where id = auth.uid()
-              and role in ('salesman', 'driver', 'mechanic', 'office', 'labor', 'admin', 'master_admin'))
+              and role in ('office', 'driver', 'mechanic', 'contractor', 'funder', 'labor', 'admin', 'master_admin'))
   );
 
 drop policy if exists "Master admins delete customer_documents" on public.customer_documents;
@@ -1429,7 +1201,7 @@ create policy "Users delete own notifications" on public.notifications
 -- ==========================================================================
 -- 23. Staff-uploaded customer documents (reps upload on a customer's behalf)
 -- ==========================================================================
--- The salesman Forms page uploads a customer's documents through the rep's
+-- The Forms page uploads a customer's documents through the staff member's
 -- own session, so staff need write access to customer_documents + the
 -- customer-documents storage bucket. The upload route verifies the rep is
 -- assigned to the business before writing.
@@ -1442,7 +1214,7 @@ security definer
 as $$
   select exists (
     select 1 from public.profiles
-    where id = auth.uid() and role in ('salesman', 'admin', 'master_admin')
+    where id = auth.uid() and role in ('office', 'admin', 'master_admin')
   );
 $$;
 
@@ -1607,214 +1379,6 @@ alter table public.customer_orders
 
 
 -- ==========================================================================
--- 29. Fuel auto-pricing — supplier rack prices + per-customer markups
--- ==========================================================================
--- Nightly DTN/Sinclair rack-price email is parsed into rack_prices. Each app
--- fuel product is mapped to one rack (location + product label) via
--- fuel_price_mappings. A customer's order price = that rack price + the
--- business's per-product markup (customer_fuel_markups).
-
-create table if not exists public.rack_prices (
-  id          uuid primary key default gen_random_uuid(),
-  location    text not null,                 -- e.g. 'WOODS CROSS, UT - HOLLY'
-  product     text not null,                 -- rack label, e.g. '#2 ULSD'
-  eff_date    date,
-  price       numeric not null,              -- dollars per gallon
-  change      numeric,
-  source      text not null default 'dtn-sinclair',
-  received_at timestamptz not null default now(),
-  unique (location, product, eff_date)
-);
-create index if not exists rack_prices_lookup_idx
-  on public.rack_prices (location, product, eff_date desc nulls last, received_at desc);
-
--- Maps one of our fuel products to the rack line it should price off.
-create table if not exists public.fuel_price_mappings (
-  app_product   text primary key,            -- e.g. 'Clear Fuel'
-  rack_location text not null,
-  rack_product  text not null,
-  updated_at    timestamptz not null default now()
-);
-
--- Per business (customer account), per product markup in $/gallon.
-create table if not exists public.customer_fuel_markups (
-  id          uuid primary key default gen_random_uuid(),
-  business_id uuid not null references public.businesses(id) on delete cascade,
-  app_product text not null,
-  markup      numeric not null default 0,    -- dollars per gallon added to rack
-  updated_at  timestamptz not null default now(),
-  unique (business_id, app_product)
-);
-create index if not exists customer_fuel_markups_biz_idx
-  on public.customer_fuel_markups (business_id);
-
-grant select, insert, update, delete on public.rack_prices           to authenticated;
-grant select, insert, update, delete on public.fuel_price_mappings   to authenticated;
-grant select, insert, update, delete on public.customer_fuel_markups to authenticated;
-
-alter table public.rack_prices           enable row level security;
-alter table public.fuel_price_mappings   enable row level security;
-alter table public.customer_fuel_markups enable row level security;
-
--- Rack prices + mappings: any signed-in user can read (needed to price an
--- order anywhere); only admins write.
-drop policy if exists "rack_prices read"  on public.rack_prices;
-drop policy if exists "rack_prices write" on public.rack_prices;
-create policy "rack_prices read"  on public.rack_prices for select to authenticated using (true);
-create policy "rack_prices write" on public.rack_prices for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
-drop policy if exists "fuel_mappings read"  on public.fuel_price_mappings;
-drop policy if exists "fuel_mappings write" on public.fuel_price_mappings;
-create policy "fuel_mappings read"  on public.fuel_price_mappings for select to authenticated using (true);
-create policy "fuel_mappings write" on public.fuel_price_mappings for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
--- Markups: staff read all; a customer can read their own business's markups
--- (so their checkout can show the right price). Only admins write.
-drop policy if exists "fuel_markups read"  on public.customer_fuel_markups;
-drop policy if exists "fuel_markups write" on public.customer_fuel_markups;
-create policy "fuel_markups read" on public.customer_fuel_markups for select to authenticated
-  using (
-    public.is_staff()
-    or business_id in (select business_id from public.profiles where id = auth.uid())
-  );
-create policy "fuel_markups write" on public.customer_fuel_markups for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
--- Default product mappings (Woods Cross rack). do-nothing on conflict so an
--- admin's later edits in the Fuel Pricing console are never clobbered. The
--- rack_location/rack_product strings must match exactly what the email parser
--- emits (see lib/fuel-prices.ts).
-insert into public.fuel_price_mappings (app_product, rack_location, rack_product) values
-  ('Clear Fuel', 'WOODS CROSS, UT - HOLLY', '#2 ULSD'),
-  ('Dyed Fuel',  'WOODS CROSS, UT - HOLLY', '#2 ULSD DYED'),
-  ('91-Octane',  'WOODS CROSS, UT - HOLLY', 'PRM10%'),
-  ('85-Octane',  'WOODS CROSS, UT - HOLLY', 'U8510%')
-on conflict (app_product) do nothing;
-
-
--- ==========================================================================
--- 30. Fuel volume-tier pricing — default tiers + per-customer special tiers
--- ==========================================================================
--- A customer's fuel price = current rack price + a markup ($/gal over rack)
--- chosen by the order volume (gallons). Every customer uses the single
--- default tier table below, UNLESS their business has fuel_special_pricing
--- turned on, in which case their own customer_fuel_tiers rows are used.
--- Only admins/master admins edit either table (is_admin() covers both).
-
-alter table public.businesses
-  add column if not exists fuel_special_pricing boolean not null default false;
-
--- When on, STAFF-placed orders (salesman/driver/admin) for this business skip
--- the For-approval queue: the order is invoiced in QuickBooks and pushed
--- straight to the warehouse automatically. Off by default; customer
--- self-checkout orders are never auto-posted.
-alter table public.businesses
-  add column if not exists auto_invoice_orders boolean not null default false;
-
--- Salesman commission settings (per customer). The assigned rep
--- (assigned_sales_rep_id) earns commission on this customer's invoices:
---   • commission_percent  — % of GROSS profit (sale − item cost). Applies to
---       every non-fuel line, and to fuel lines too when fuel mode = 'percent'.
---   • fuel_commission_mode — fuel is EITHER 'percent' (use commission_percent on
---       fuel profit) OR 'per_gallon' (flat $/gal). Never both.
---   • fuel_commission_per_gallon — dollars per gallon when mode = 'per_gallon'
---       (e.g. 0.01 = a penny a gallon).
-alter table public.businesses
-  add column if not exists commission_percent numeric;
-alter table public.businesses
-  add column if not exists fuel_commission_mode text
-    check (fuel_commission_mode in ('percent', 'per_gallon')) default 'percent';
-alter table public.businesses
-  add column if not exists fuel_commission_per_gallon numeric;
-
--- A salesman's QuickBooks Class name (e.g. 'MARK'). When their customers'
--- orders are invoiced, non-fuel lines get this class and fuel lines get
--- '<class> FUEL', so QuickBooks' Profit & Loss by Class reports per salesman.
-alter table public.profiles
-  add column if not exists qb_class text;
-
--- The one shared default tier table shown on the salesman dashboard.
-create table if not exists public.fuel_pricing_tiers (
-  id          uuid primary key default gen_random_uuid(),
-  min_gallons integer not null,           -- inclusive lower bound
-  max_gallons integer,                     -- inclusive upper bound; null = no cap
-  markup      numeric not null default 0,  -- dollars per gallon over rack
-  sort_order  integer not null default 0
-);
-
--- Per-business override tiers, used only when fuel_special_pricing is on.
-create table if not exists public.customer_fuel_tiers (
-  id          uuid primary key default gen_random_uuid(),
-  business_id uuid not null references public.businesses(id) on delete cascade,
-  min_gallons integer not null,
-  max_gallons integer,
-  markup      numeric not null default 0,
-  sort_order  integer not null default 0
-);
-create index if not exists customer_fuel_tiers_biz_idx
-  on public.customer_fuel_tiers (business_id);
-
-grant select, insert, update, delete on public.fuel_pricing_tiers  to authenticated;
-grant select, insert, update, delete on public.customer_fuel_tiers to authenticated;
-
-alter table public.fuel_pricing_tiers  enable row level security;
-alter table public.customer_fuel_tiers enable row level security;
-
--- Default tiers: any signed-in user reads (salesman dashboard + pricing);
--- only admins write.
-drop policy if exists "fuel_tiers read"  on public.fuel_pricing_tiers;
-drop policy if exists "fuel_tiers write" on public.fuel_pricing_tiers;
-create policy "fuel_tiers read"  on public.fuel_pricing_tiers for select to authenticated using (true);
-create policy "fuel_tiers write" on public.fuel_pricing_tiers for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
--- Customer tiers: staff read all; a customer can read their own business's
--- tiers; only admins write.
-drop policy if exists "cust_fuel_tiers read"  on public.customer_fuel_tiers;
-drop policy if exists "cust_fuel_tiers write" on public.customer_fuel_tiers;
-create policy "cust_fuel_tiers read" on public.customer_fuel_tiers for select to authenticated
-  using (
-    public.is_staff()
-    or business_id in (select business_id from public.profiles where id = auth.uid())
-  );
-create policy "cust_fuel_tiers write" on public.customer_fuel_tiers for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-
--- Seed the default tiers once (only when the table is empty, so admin edits
--- are never clobbered on re-run).
-insert into public.fuel_pricing_tiers (min_gallons, max_gallons, markup, sort_order)
-select * from (values
-  (1,    100,  5.00, 1),
-  (101,  250,  3.00, 2),
-  (251,  500,  2.25, 3),
-  (501,  750,  1.25, 4),
-  (751,  1000, 1.00, 5),
-  (1001, 1500, 0.50, 6),
-  (1501, 4000, 0.30, 7),
-  (4001, 8000, 0.20, 8),
-  (8001, null, 0.15, 9)
-) as v(min_gallons, max_gallons, markup, sort_order)
-where not exists (select 1 from public.fuel_pricing_tiers);
-
--- Which tier's markup feeds the "Today's Fuel Prices" box. At most one tier is
--- flagged (enforced by the partial unique index); the widget shows rack + this
--- tier's markup. Idempotent. If none is flagged yet, default to the lowest
--- tier so the box keeps showing the same base price it did before.
-alter table public.fuel_pricing_tiers
-  add column if not exists display_in_widget boolean not null default false;
-create unique index if not exists fuel_pricing_tiers_one_display
-  on public.fuel_pricing_tiers (display_in_widget) where display_in_widget;
-update public.fuel_pricing_tiers
-set display_in_widget = true
-where id = (
-  select id from public.fuel_pricing_tiers order by sort_order, min_gallons limit 1
-)
-and not exists (select 1 from public.fuel_pricing_tiers where display_in_widget);
-
-
--- ==========================================================================
 -- 31. Messaging — boards, membership, messages, read state, avatars
 -- ==========================================================================
 -- A lightweight message-board + DM system that mirrors the notification bell:
@@ -1972,7 +1536,7 @@ begin
   if not (
         public.is_staff()
         or exists (select 1 from public.profiles
-                   where id = other and role in ('salesman','driver','mechanic','admin','master_admin'))
+                   where id = other and role in ('office','driver','mechanic','contractor','admin','master_admin'))
      ) then
     raise exception 'not allowed';
   end if;
@@ -2136,7 +1700,7 @@ begin
        and (
          exists (select 1 from public.message_boards b
                   where b.id = new.board_id and b.all_staff
-                    and prof.role in ('salesman','driver','mechanic','admin','master_admin'))
+                    and prof.role in ('office','driver','mechanic','contractor','admin','master_admin'))
          or exists (select 1 from public.board_members m
                      where m.board_id = new.board_id and m.user_id = prof.id)
        )
@@ -2171,75 +1735,6 @@ drop trigger if exists trg_dispatch_push_message on public.messages;
 create trigger trg_dispatch_push_message
   after insert on public.messages
   for each row execute function public.dispatch_push_for_message();
-
-
--- ==========================================================================
--- 32. Inventory setup — admin-toggleable catalog of QuickBooks items
--- ==========================================================================
--- A flat list of sellable items imported from the QuickBooks Product/Service
--- export (AUTO 1 packaging excluded). Admins toggle each item on/off in
--- /admin/inventory. Seeded separately (inventory-seed.sql).
-
-create table if not exists public.inventory_items (
-  id          uuid primary key default gen_random_uuid(),
-  qb_name     text not null unique,   -- full QuickBooks Product/Service name
-  description text,
-  sku         text,
-  packaging   text,                   -- prefix grouping: GAL, 6/1, 55, 1/5, …
-  unit_price  numeric,                 -- legacy; retail_price supersedes it
-  cost        numeric,                 -- our cost (QB Purchase Cost)
-  retail_price numeric,                -- price we sell at (QB Sales Price)
-  taxable     boolean not null default false,
-  qb_type     text,
-  active      boolean not null default true,
-  sort_order  int not null default 0,
-  created_at  timestamptz not null default now()
-);
-create index if not exists inventory_items_packaging_idx on public.inventory_items(packaging);
-
--- Additive for existing installs: cost + retail_price columns.
-alter table public.inventory_items add column if not exists cost numeric;
-alter table public.inventory_items add column if not exists retail_price numeric;
-update public.inventory_items set retail_price = unit_price
-  where retail_price is null and unit_price is not null;
-
--- Optional link to an orderable catalog variant (Product + Weight + Container
--- size), so an inventory item can be matched to what the ordering dropdowns
--- show. Fuel is intentionally never matched here (priced from its own tables).
-alter table public.inventory_items add column if not exists match_product_id uuid
-  references public.products(id) on delete set null;
-alter table public.inventory_items add column if not exists match_weight text;
-alter table public.inventory_items add column if not exists match_container_size text;
-
--- Inventory levels pulled from QuickBooks (QtyOnHand) + per-item reorder point
--- and a notify flag. low_stock_notified_at de-dupes the push so we only alert
--- when an item first drops to/below its reorder point.
-alter table public.inventory_items add column if not exists qty_on_hand numeric;
-alter table public.inventory_items add column if not exists qb_qty_synced_at timestamptz;
-alter table public.inventory_items add column if not exists reorder_point numeric;
-alter table public.inventory_items add column if not exists reorder_notify boolean not null default false;
-alter table public.inventory_items add column if not exists low_stock_notified_at timestamptz;
--- Admin-only items: visible/orderable only to admin + master_admin.
-alter table public.inventory_items add column if not exists admin_only boolean not null default false;
-
--- Count of active items at/below their reorder point (drives the nav badge).
-create or replace function public.low_stock_count()
-returns int language sql stable security definer set search_path = public as $$
-  select count(*)::int from public.inventory_items
-   where active and reorder_point is not null and qty_on_hand is not null
-     and qty_on_hand <= reorder_point;
-$$;
-grant execute on function public.low_stock_count() to authenticated;
-
-grant select, insert, update, delete on public.inventory_items to authenticated;
-alter table public.inventory_items enable row level security;
-
-drop policy if exists "inventory admins all"        on public.inventory_items;
-drop policy if exists "inventory staff read active" on public.inventory_items;
-create policy "inventory admins all" on public.inventory_items for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-create policy "inventory staff read active" on public.inventory_items for select to authenticated
-  using (active and not admin_only and public.is_staff());
 
 
 -- ==========================================================================
@@ -2400,174 +1895,6 @@ on conflict (key) do nothing;
 
 
 -- ==========================================================================
--- 32. vendor_bills — inbound vendor invoices → review queue → QuickBooks Bills
--- ==========================================================================
--- Vendor invoices arrive (forwarded email → webhook, manual upload, or manual
--- entry), are parsed into a draft, and land here as 'pending'. An admin reviews
--- vendor/amount/date, then pushes to QuickBooks as a Bill (status → 'pushed').
--- Nothing posts to QB without an admin's approval.
-create table if not exists public.vendor_bills (
-  id uuid primary key default gen_random_uuid(),
-  status text not null default 'pending'
-    check (status in ('pending', 'approved', 'pushed', 'rejected')),
-  vendor_name text,
-  vendor_qb_id text,
-  invoice_number text,
-  bill_date date,
-  due_date date,
-  total_amount numeric,
-  memo text,
-  line_items jsonb not null default '[]'::jsonb,
-  source text not null default 'manual' check (source in ('manual', 'upload', 'email', 'quickbooks')),
-  source_email_from text,
-  source_email_subject text,
-  attachment_path text,           -- file in the vendor-bills storage bucket
-  parsed jsonb,                    -- raw AI extraction, kept for audit
-  parse_status text,               -- 'ok' | 'failed' | null
-  qb_bill_id text,                 -- set once pushed to QuickBooks
-  qb_doc_number text,
-  pushed_at timestamptz,
-  reviewed_by uuid references public.profiles(id) on delete set null,
-  created_at timestamptz not null default now()
-);
--- source_message_id: the Microsoft Graph message id of the email a bill came
--- from. Lets the email poller skip messages it already filed (dedupe).
-alter table public.vendor_bills
-  add column if not exists source_message_id text;
--- Allow the 'quickbooks' source (open A/P imported from QB). Re-runnable.
-alter table public.vendor_bills drop constraint if exists vendor_bills_source_check;
-alter table public.vendor_bills
-  add constraint vendor_bills_source_check check (source in ('manual', 'upload', 'email', 'quickbooks'));
-create unique index if not exists vendor_bills_source_message_id_key
-  on public.vendor_bills(source_message_id) where source_message_id is not null;
-create index if not exists vendor_bills_status_idx on public.vendor_bills(status, created_at desc);
-
--- Accounts-payable tracking: an entered bill is owed until marked paid. The
--- Bills tab's "Unpaid" list is everything with paid = false; the due-date cron
--- alerts admins the day before and on the due date.
-alter table public.vendor_bills
-  add column if not exists paid boolean not null default false;
-alter table public.vendor_bills
-  add column if not exists paid_at timestamptz;
-alter table public.vendor_bills
-  add column if not exists paid_by uuid references public.profiles(id) on delete set null;
-create index if not exists vendor_bills_unpaid_due_idx
-  on public.vendor_bills(due_date) where paid = false;
-
-grant select, insert, update, delete on public.vendor_bills to authenticated;
-alter table public.vendor_bills enable row level security;
-drop policy if exists "Admins manage vendor_bills" on public.vendor_bills;
-create policy "Admins manage vendor_bills" on public.vendor_bills
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
-
--- Private bucket for the original bill PDFs.
-insert into storage.buckets (id, name, public)
-  values ('vendor-bills', 'vendor-bills', false)
-  on conflict (id) do nothing;
-drop policy if exists "Admins read vendor bill files" on storage.objects;
-create policy "Admins read vendor bill files" on storage.objects
-  for select to authenticated using (bucket_id = 'vendor-bills' and public.is_admin());
-drop policy if exists "Admins write vendor bill files" on storage.objects;
-create policy "Admins write vendor bill files" on storage.objects
-  for insert to authenticated with check (bucket_id = 'vendor-bills' and public.is_admin());
-
-
--- ==========================================================================
--- 32b. bill_vendors — known-vendor allowlist for email bill ingestion
--- ==========================================================================
--- Master admins maintain this list (Bills page). The email poller only files a
--- bill when the sender matches one of these vendors, so a personal/shared inbox
--- isn't turned into a bill for every random attachment. `sender` is an email
--- address or a domain (e.g. 'loves.com'); a null sender just means "named but
--- not yet wired" and won't match until filled in.
-create or replace function public.is_master_admin()
-returns boolean
-language sql
-stable
-security definer
-as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'master_admin'
-  );
-$$;
-
-create table if not exists public.bill_vendors (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  sender text,                 -- email address or domain; null = not wired yet
-  active boolean not null default true,
-  created_at timestamptz not null default now()
-);
--- Unique on the name (case-insensitive) so the seed below is re-run safe.
-create unique index if not exists bill_vendors_name_key on public.bill_vendors (lower(name));
-
-grant select, insert, update, delete on public.bill_vendors to authenticated;
-alter table public.bill_vendors enable row level security;
--- All admins can read the list; only master admins can change it.
-drop policy if exists "Admins read bill_vendors"        on public.bill_vendors;
-drop policy if exists "Master admins write bill_vendors" on public.bill_vendors;
-create policy "Admins read bill_vendors" on public.bill_vendors
-  for select to authenticated using (public.is_admin());
-create policy "Master admins write bill_vendors" on public.bill_vendors
-  for all to authenticated using (public.is_master_admin()) with check (public.is_master_admin());
-
--- Seed the vendor names Cody listed. Senders left null for the master admin to
--- fill from a real bill's From address. do-nothing on conflict keeps re-runs
--- safe and never clobbers a sender that's already been set.
-insert into public.bill_vendors (name) values
-  ('Brad Hall'), ('Loves'), ('HF Sinclair'), ('Dale Petroleum'),
-  ('Petro-Canada'), ('Highline-Warren'), ('Omni'), ('CMJ')
-on conflict do nothing;
-
-
--- ==========================================================================
--- 32c. bill_due_alerts — dedupe for the bill-due notification cron
--- ==========================================================================
--- One row per (bill, milestone) once we've alerted on it, so re-running the
--- daily cron never double-notifies. alert is 'day_before' or 'due'.
-create table if not exists public.bill_due_alerts (
-  bill_id uuid not null references public.vendor_bills(id) on delete cascade,
-  alert   text not null check (alert in ('day_before', 'due')),
-  sent_on date not null default current_date,
-  primary key (bill_id, alert)
-);
-grant select, insert, update, delete on public.bill_due_alerts to authenticated;
-alter table public.bill_due_alerts enable row level security;
-drop policy if exists "Admins manage bill_due_alerts" on public.bill_due_alerts;
-create policy "Admins manage bill_due_alerts" on public.bill_due_alerts
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
-
-
--- ==========================================================================
--- 32d. bill_line_map — per-vendor "their line wording → our inventory item"
--- ==========================================================================
--- Vendor bills post to QuickBooks as item-based lines so purchases count toward
--- inventory + COGS. Vendors word the same product differently (Brad Hall "CLR
--- DSL ULSD" vs Love's "Clear Diesel"), so the map is keyed by vendor. Learned
--- as you go: an admin picks the item once at review and we remember it, so
--- future bills from that vendor auto-map. Tax lines are just items too (a
--- pass-through product), so they live in the same map.
---   vendor_key  — normalized vendor name (lowercased, alphanumerics)
---   match_text  — normalized bill line description
---   qb_item_name— inventory_items.qb_name (the QuickBooks item)
-create table if not exists public.bill_line_map (
-  id           uuid primary key default gen_random_uuid(),
-  vendor_key   text not null,
-  match_text   text not null,
-  qb_item_name text not null,
-  created_at   timestamptz not null default now()
-);
-create unique index if not exists bill_line_map_key
-  on public.bill_line_map (vendor_key, match_text);
-grant select, insert, update, delete on public.bill_line_map to authenticated;
-alter table public.bill_line_map enable row level security;
-drop policy if exists "Admins manage bill_line_map" on public.bill_line_map;
-create policy "Admins manage bill_line_map" on public.bill_line_map
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
-
-
--- ==========================================================================
 -- 34. feature_flags — master-admin show/hide of nav tabs per role
 -- ==========================================================================
 -- Each key is "role:href" (e.g. 'admin:/admin/bills', 'driver:/driver/inventory').
@@ -2642,113 +1969,6 @@ create policy "Master admins manage admin_tasks" on public.admin_tasks
   for all to authenticated using (public.is_master_admin()) with check (public.is_master_admin());
 
 
--- Price quotes. A salesman builds a quote from inventory (prices match
--- QuickBooks/inventory), generates the fillable Price Quote PDF, and shares it.
--- Standard-priced quotes send immediately (status 'sent'); a line with a
--- requested special price routes the quote to admin approval first.
-create sequence if not exists public.quotes_seq start 1000;
--- Reps insert quotes as themselves (authenticated), so they need to advance the
--- sequence behind quote_number's default.
-grant usage, select on sequence public.quotes_seq to authenticated;
-create table if not exists public.quotes (
-  id                  uuid primary key default gen_random_uuid(),
-  quote_number        text not null default ('Q-' || lpad(nextval('public.quotes_seq')::text, 5, '0')),
-  business_id         uuid references public.businesses(id) on delete set null,
-  customer_id         uuid references public.profiles(id) on delete set null,
-  -- Snapshot of who it's for (so the PDF/list stay stable even if records change)
-  customer_company    text,
-  customer_contact    text,
-  customer_address    text,
-  customer_phone_email text,
-  sales_rep_id        uuid references public.profiles(id) on delete set null,
-  sales_rep_name      text,
-  sales_rep_phone     text,
-  sales_rep_email     text,
-  quote_date          date not null default current_date,
-  valid_thru          date,
-  -- [{ desc, cat, pack, unit, price, requested_price, special }]
-  line_items          jsonb not null default '[]'::jsonb,
-  has_special_pricing boolean not null default false,
-  status              text not null default 'sent'
-                        check (status in ('sent', 'pending_approval', 'approved', 'denied')),
-  approved_by         uuid references public.profiles(id) on delete set null,
-  approved_at         timestamptz,
-  decision_note       text,
-  sent_at             timestamptz,
-  created_at          timestamptz not null default now()
-);
--- Snapshot of the rep's contact info on the quote (added after initial release).
-alter table public.quotes add column if not exists sales_rep_phone text;
-alter table public.quotes add column if not exists sales_rep_email text;
-create index if not exists quotes_business_idx on public.quotes(business_id, created_at desc);
-create index if not exists quotes_status_idx on public.quotes(status, created_at desc);
-grant select, insert, update, delete on public.quotes to authenticated;
-alter table public.quotes enable row level security;
--- Quote visibility: admins see/manage ALL quotes; a salesman sees/manages only
--- the quotes they created (sales_rep_id = themselves).
-drop policy if exists "Staff manage quotes" on public.quotes;
-drop policy if exists "Admins manage all quotes" on public.quotes;
-drop policy if exists "Reps manage own quotes" on public.quotes;
-create policy "Admins manage all quotes" on public.quotes
-  for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
-create policy "Reps manage own quotes" on public.quotes
-  for all to authenticated
-  using (sales_rep_id = auth.uid())
-  with check (sales_rep_id = auth.uid());
-
--- Notify admins when a rep requests special pricing, and notify the rep when an
--- admin approves or denies it. (Web push fires automatically off notifications.)
-create or replace function public.notify_on_quote_decision()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  -- New special-pricing request -> notify all admins
-  if (tg_op = 'INSERT' and new.status = 'pending_approval')
-     or (tg_op = 'UPDATE' and new.status = 'pending_approval'
-         and new.status is distinct from old.status) then
-    insert into public.notifications (recipient_id, kind, title, body, link)
-    select p.id, 'quote_pending_approval',
-           'Special pricing request - ' || new.quote_number,
-           coalesce(new.sales_rep_name, 'A rep') || ' requested special pricing for '
-             || coalesce(new.customer_company, 'a customer') || '.',
-           '/admin/quotes'
-    from public.profiles p
-    where p.role in ('admin', 'master_admin');
-  end if;
-
-  -- Decision made -> notify the rep who created the quote
-  if tg_op = 'UPDATE' and new.status in ('approved', 'denied')
-     and old.status = 'pending_approval' and new.sales_rep_id is not null then
-    insert into public.notifications (recipient_id, kind, title, body, link)
-    values (
-      new.sales_rep_id,
-      'quote_' || new.status,
-      'Quote ' || new.quote_number || ' ' || new.status,
-      case when new.status = 'approved'
-           then 'Special pricing approved - you can now send this quote.'
-           else 'Special pricing denied'
-             || case when coalesce(new.decision_note, '') != ''
-                     then ': ' || new.decision_note else '. You can still send it at standard price.' end
-      end,
-      '/salesman/quotes'
-    );
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_notify_on_quote_decision on public.quotes;
-create trigger trg_notify_on_quote_decision
-  after insert or update on public.quotes
-  for each row execute function public.notify_on_quote_decision();
-
-
 -- ==========================================================================
 -- 24. purchase_orders — admin PO log with an auto-incrementing PO number
 -- ==========================================================================
@@ -2805,62 +2025,6 @@ create policy "Admins update purchase orders" on public.purchase_orders
   for update to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy "Admins delete purchase orders" on public.purchase_orders
   for delete to authenticated using (public.is_admin());
-
-
--- ==========================================================================
--- 24b. Fuel purchase orders — auto-created from a fuel ORDER's rack + account
--- ==========================================================================
--- When a fuel order is placed (staff order screen), the app auto-creates a
--- purchase order for what WE owe the supplier: it carries the loading rack, the
--- fuel account (vendor), and the gallons picked up. The per-gallon PRICE starts
--- blank — the buyer fills it in when the supplier's bill arrives, then checks
--- the PO off as "bill received & correct". A line with no price yet is the
--- "needs attention" state (shown outlined in red on the Fuel POs screen).
---
--- One PO per (order, rack, fuel account) group; one line per fuel product on
--- that order. Separate from the manual `purchase_orders` log above.
-create table if not exists public.fuel_purchase_orders (
-  id             uuid primary key default gen_random_uuid(),
-  po_number      bigint generated always as identity,   -- display: "Fuel PO #<n>"
-  order_id       uuid references public.customer_orders(id) on delete set null,
-  order_ref      text,                                   -- short order id for display if the order is later removed
-  rack           text not null,
-  fuel_account   text not null,
-  status         text not null default 'open' check (status in ('open','confirmed','canceled')),
-  bill_received  boolean not null default false,
-  confirmed_at   timestamptz,
-  confirmed_by   uuid references public.profiles(id) on delete set null,
-  canceled_at    timestamptz,
-  created_by     uuid references public.profiles(id) on delete set null,
-  created_by_name text,
-  created_at     timestamptz not null default now()
-);
-create unique index if not exists fpo_number_idx on public.fuel_purchase_orders(po_number);
-create index if not exists fpo_order_idx  on public.fuel_purchase_orders(order_id);
-create index if not exists fpo_status_idx on public.fuel_purchase_orders(status, created_at desc);
-
-create table if not exists public.fuel_po_lines (
-  id             uuid primary key default gen_random_uuid(),
-  po_id          uuid not null references public.fuel_purchase_orders(id) on delete cascade,
-  product_name   text not null,
-  container_size text,
-  gallons        numeric(12,2) not null,
-  unit_price     numeric(12,4),          -- $/gal; NULL = price still needed (red)
-  created_at     timestamptz not null default now()
-);
-create index if not exists fpo_lines_po_idx on public.fuel_po_lines(po_id);
-
-alter table public.fuel_purchase_orders enable row level security;
-alter table public.fuel_po_lines        enable row level security;
-grant select, insert, update, delete on public.fuel_purchase_orders to authenticated;
-grant select, insert, update, delete on public.fuel_po_lines        to authenticated;
-
-drop policy if exists "fpo admin all" on public.fuel_purchase_orders;
-create policy "fpo admin all" on public.fuel_purchase_orders for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-drop policy if exists "fpo lines admin all" on public.fuel_po_lines;
-create policy "fpo lines admin all" on public.fuel_po_lines for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
 
 
 -- ==========================================================================
@@ -3013,155 +2177,229 @@ update public.trucking_commodities set pricing_mode = 'amount'   where name = 'T
 
 
 -- ==========================================================================
--- CARD CHARGES — company credit-card charges (Chase, WEX later) pulled via
--- Plaid and reconciled against receipts read from the fuel/vehicle app. This is
--- cost/financial data, so it's admin-only (mirrors vendor_bills).
+-- 37. work_orders — field tickets (the core of the app)
 -- ==========================================================================
+-- One row per field ticket. A crew member fills it out in the field (with a
+-- photo of the paper ticket), the office reviews/edits/approves it and
+-- invoices the customer in QuickBooks, the contractor approves their crew's
+-- portion, and the funder (Auto 1) approves funds against it.
+--
+--   draft -> submitted -> office_approved -> funds_approved -> invoiced
+--
+-- Approvals are gated in the API routes (app/api/work-orders/*), which run as
+-- the service role and write only the columns that role is allowed to touch.
+-- RLS below decides WHO can see and write a row at all.
 
--- One row per card charge. Charges arrive from Plaid (source 'plaid', deduped on
--- external_id = the Plaid transaction id) or entered by hand ('manual'). Each is
--- attributed to a driver (via card_driver_map) and matched to a receipt from the
--- other app by amount + date; receipt_status drives the "missing receipt" flag.
-create table if not exists public.card_charges (
-  id uuid primary key default gen_random_uuid(),
-  source text not null default 'manual' check (source in ('plaid', 'manual', 'oneglovebox', 'quickbooks')),
-  external_id text,                      -- external transaction id (dedupe key): Plaid txn id, or "ogb:<id>" for OneGloveBox
-  card_last4 text,
-  cardholder_name text,
-  merchant text,
-  amount numeric,
-  charge_date date,
-  driver_id uuid references public.profiles(id) on delete set null,
-  receipt_status text not null default 'missing'
-    check (receipt_status in ('missing', 'matched', 'na', 'submitted')),
-  receipt_ref text,                      -- external receipt id from the other app
-  receipt_url text,                      -- link to the receipt file
-  receipt_source text check (receipt_source in ('external_app', 'upload')),
-  receipt_matched_at timestamptz,
-  receipt_note text,                     -- driver-entered details when they submit a receipt in-app
-  receipt_submitted_at timestamptz,      -- when the driver submitted it (status 'submitted')
-  reviewed boolean not null default false,
-  notes text,
-  created_at timestamptz not null default now()
+-- Small role helper so policies stay readable.
+create or replace function public.has_role(roles text[])
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = any(roles)
+  );
+$$;
+grant execute on function public.has_role(text[]) to authenticated;
+
+create table if not exists public.work_orders (
+  id                     uuid primary key default gen_random_uuid(),
+
+  -- Who / what job
+  customer_id            uuid references public.profiles(id) on delete set null,
+  business_id            uuid references public.businesses(id) on delete set null,
+  customer_number        text,
+  job_number             text,
+  day_number             text,
+  phase_code             text,
+  claim_number           text,
+  unit_number            text,          -- the truck on this ticket
+  fsr                    text,          -- Field Service Rep (name or ref)
+
+  -- Time + amounts (worked hours are computed from start/stop, plus travel/down)
+  job_date               date,
+  start_at               timestamptz,
+  stop_at                timestamptz,
+  travel_hours           numeric(6,2),
+  down_hours             numeric(6,2),
+  rate                   numeric(12,2),
+  tonnage                numeric(12,2),
+  tonnage_type           text,
+
+  -- Attachments (Storage: work-tickets bucket)
+  ticket_photo_path      text,
+  short_ticket_path      text,
+  signature_path         text,
+
+  -- Ownership
+  submitted_by           uuid references public.profiles(id) on delete set null,
+  contractor_id          uuid references public.profiles(id) on delete set null,
+  submitted_at           timestamptz,
+
+  -- Approval chain
+  status                 text not null default 'draft'
+    check (status in ('draft','submitted','office_approved','funds_approved','invoiced','rejected')),
+  office_approved_by     uuid references public.profiles(id) on delete set null,
+  office_approved_at     timestamptz,
+  contractor_approved_by uuid references public.profiles(id) on delete set null,
+  contractor_approved_at timestamptz,
+  funder_approved_by     uuid references public.profiles(id) on delete set null,
+  funder_approved_at     timestamptz,
+  rejected_reason        text,
+
+  -- QuickBooks link (office invoices the customer)
+  qb_invoice_id          text,
+  qb_invoice_number      text,
+  qb_synced_at           timestamptz,
+
+  notes                  text,
+  created_at             timestamptz not null default now(),
+  updated_at             timestamptz not null default now()
 );
-create unique index if not exists card_charges_external_id_key
-  on public.card_charges(external_id) where external_id is not null;
-create index if not exists card_charges_status_idx
-  on public.card_charges(receipt_status, charge_date desc);
--- Allow the 'oneglovebox' source (driver-uploaded card receipts pulled from the
--- OneGloveBox app as charges). Re-runnable — widens the existing check in place.
-alter table public.card_charges drop constraint if exists card_charges_source_check;
-alter table public.card_charges
-  add constraint card_charges_source_check check (source in ('plaid', 'manual', 'oneglovebox', 'quickbooks'));
--- 'submitted' status + driver-provided receipt columns (a driver attaches a
--- photo + details in-app; an admin then hands it to OneGloveBox). Re-runnable.
-alter table public.card_charges add column if not exists receipt_note text;
-alter table public.card_charges add column if not exists receipt_vendor text;   -- driver-entered vendor on submit
-alter table public.card_charges add column if not exists receipt_submitted_at timestamptz;
-alter table public.card_charges drop constraint if exists card_charges_receipt_status_check;
-alter table public.card_charges
-  add constraint card_charges_receipt_status_check check (receipt_status in ('missing', 'matched', 'na', 'submitted'));
 
-grant select, insert, update, delete on public.card_charges to authenticated;
-alter table public.card_charges enable row level security;
-drop policy if exists "Admins manage card_charges" on public.card_charges;
-create policy "Admins manage card_charges" on public.card_charges
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
--- A driver can READ their own charges (drives the "missing receipts" banner in
--- the driver app). Read-only: only admins insert/update/attribute charges.
-drop policy if exists "Drivers read own card_charges" on public.card_charges;
-create policy "Drivers read own card_charges" on public.card_charges
-  for select to authenticated using (driver_id = auth.uid());
--- A driver can update their OWN charges — powers submitting a receipt (photo +
--- details) from the banner. They can't reassign a charge to someone else
--- (the with-check keeps driver_id = themselves).
-drop policy if exists "Drivers submit own card_charges" on public.card_charges;
-create policy "Drivers submit own card_charges" on public.card_charges
-  for update to authenticated using (driver_id = auth.uid()) with check (driver_id = auth.uid());
+create index if not exists work_orders_status_idx     on public.work_orders(status, job_date desc);
+create index if not exists work_orders_submitter_idx  on public.work_orders(submitted_by, created_at desc);
+create index if not exists work_orders_contractor_idx on public.work_orders(contractor_id, created_at desc);
+create index if not exists work_orders_customer_idx   on public.work_orders(customer_id);
+create index if not exists work_orders_job_idx        on public.work_orders(job_number);
 
--- Card -> driver map. Auto-attributes incoming Plaid charges: match on the last
--- 4 of the card (plus cardholder name when a card is shared) to a driver_id.
--- cardholder_name = '' means "any holder on this card".
-create table if not exists public.card_driver_map (
-  id uuid primary key default gen_random_uuid(),
-  card_last4 text not null,
-  cardholder_name text not null default '',
-  driver_id uuid references public.profiles(id) on delete cascade,
-  label text,
-  created_at timestamptz not null default now()
-);
-create unique index if not exists card_driver_map_key
-  on public.card_driver_map(card_last4, cardholder_name);
+-- keep updated_at fresh
+create or replace function public.touch_updated_at()
+returns trigger language plpgsql as $$
+begin new.updated_at = now(); return new; end;
+$$;
+drop trigger if exists trg_work_orders_touch on public.work_orders;
+create trigger trg_work_orders_touch before update on public.work_orders
+  for each row execute function public.touch_updated_at();
 
-grant select, insert, update, delete on public.card_driver_map to authenticated;
-alter table public.card_driver_map enable row level security;
-drop policy if exists "Admins manage card_driver_map" on public.card_driver_map;
-create policy "Admins manage card_driver_map" on public.card_driver_map
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+grant select, insert, update, delete on public.work_orders to authenticated;
+alter table public.work_orders enable row level security;
 
--- Time-aware card→driver assignments. Each card (by last-4) belongs to a TRUCK,
--- and the driver on that truck changes over time — so who a charge belongs to
--- depends on the card AND the charge date. Each reassignment adds a row with an
--- effective_from date; a charge on card X dated D is attributed to the row for X
--- with the latest effective_from <= D. (Supersedes card_driver_map for the
--- QuickBooks charge flow.)
-create table if not exists public.card_assignments (
+-- Admins + office manage everything (review, edit, approve, invoice).
+drop policy if exists "wo office manage" on public.work_orders;
+create policy "wo office manage" on public.work_orders
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+-- Crew (driver / contractor crew) create tickets and read/edit their OWN while
+-- still draft or submitted. They can't touch approvals.
+drop policy if exists "wo crew insert" on public.work_orders;
+create policy "wo crew insert" on public.work_orders
+  for insert to authenticated
+  with check (submitted_by = auth.uid());
+
+drop policy if exists "wo crew read own" on public.work_orders;
+create policy "wo crew read own" on public.work_orders
+  for select to authenticated
+  using (submitted_by = auth.uid());
+
+drop policy if exists "wo crew edit own draft" on public.work_orders;
+create policy "wo crew edit own draft" on public.work_orders
+  for update to authenticated
+  using (submitted_by = auth.uid() and status in ('draft','submitted'))
+  with check (submitted_by = auth.uid() and status in ('draft','submitted'));
+
+-- Contractor: read every ticket for their crews and approve their portion.
+drop policy if exists "wo contractor read" on public.work_orders;
+create policy "wo contractor read" on public.work_orders
+  for select to authenticated
+  using (public.has_role(array['contractor']) and contractor_id = auth.uid());
+
+drop policy if exists "wo contractor approve" on public.work_orders;
+create policy "wo contractor approve" on public.work_orders
+  for update to authenticated
+  using (public.has_role(array['contractor']) and contractor_id = auth.uid())
+  with check (public.has_role(array['contractor']) and contractor_id = auth.uid());
+
+-- Funder (Auto 1): read ALL orders and approve funds.
+drop policy if exists "wo funder read" on public.work_orders;
+create policy "wo funder read" on public.work_orders
+  for select to authenticated
+  using (public.has_role(array['funder']));
+
+drop policy if exists "wo funder approve" on public.work_orders;
+create policy "wo funder approve" on public.work_orders
+  for update to authenticated
+  using (public.has_role(array['funder']))
+  with check (public.has_role(array['funder']));
+
+-- NOTE on approvals: RLS controls WHO can write a row, not WHICH columns. The
+-- "contractor may only set contractor_approved_*, funder only funder_*, crew
+-- can't self-approve" rule is enforced server-side in the approval routes,
+-- which run with the service role and set exactly the allowed fields.
+
+
+-- ==========================================================================
+-- 38. job_rates — the contractor's agreed rate per job/phase
+-- ==========================================================================
+-- What each job pays, so the ticket form can default `rate` and the contractor
+-- has a Rates tab to check against. Office/admin maintain them; contractors and
+-- crew read them.
+
+create table if not exists public.job_rates (
   id             uuid primary key default gen_random_uuid(),
-  card_last4     text not null,
-  card_type      text not null default 'truck' check (card_type in ('truck', 'driver', 'admin')),
-  truck_label    text,            -- e.g. "Truck 12" — for a truck card (a driver/admin card belongs to one person)
-  driver_id      uuid references public.profiles(id) on delete set null,
-  effective_from date not null default current_date,
-  created_at     timestamptz not null default now(),
-  created_by     uuid references public.profiles(id) on delete set null
+  job_number     text not null,
+  phase_code     text,
+  description    text,
+  rate           numeric(12,2) not null default 0,
+  rate_unit      text not null default 'hour' check (rate_unit in ('hour','ton','load','day')),
+  contractor_id  uuid references public.profiles(id) on delete set null,
+  active         boolean not null default true,
+  updated_at     timestamptz not null default now()
 );
--- card_type: 'truck' (card follows the truck; driver rotates), 'driver' (the
--- driver's own card for misc charges; one permanent person), or 'admin' (a
--- company/office card held by an admin). Re-runnable.
-alter table public.card_assignments add column if not exists card_type text not null default 'truck';
-alter table public.card_assignments drop constraint if exists card_assignments_type_check;
-alter table public.card_assignments add constraint card_assignments_type_check check (card_type in ('truck', 'driver', 'admin'));
-create index if not exists card_assignments_card_idx
-  on public.card_assignments(card_last4, effective_from desc);
-grant select, insert, update, delete on public.card_assignments to authenticated;
-alter table public.card_assignments enable row level security;
-drop policy if exists "Admins manage card_assignments" on public.card_assignments;
-create policy "Admins manage card_assignments" on public.card_assignments
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+create unique index if not exists job_rates_job_phase_idx
+  on public.job_rates(job_number, coalesce(phase_code, ''));
+grant select, insert, update, delete on public.job_rates to authenticated;
+alter table public.job_rates enable row level security;
 
--- Private bucket for receipts uploaded straight into Auto 1 (the fuel/vehicle
--- app hosts its own; this is only the manual-attach fallback).
+drop policy if exists "job_rates staff read"   on public.job_rates;
+drop policy if exists "job_rates office write" on public.job_rates;
+create policy "job_rates staff read" on public.job_rates
+  for select to authenticated using (true);
+create policy "job_rates office write" on public.job_rates
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+
+-- ==========================================================================
+-- 39. Storage — work-tickets bucket (ticket photos + short tickets)
+-- ==========================================================================
 insert into storage.buckets (id, name, public)
-  values ('card-receipts', 'card-receipts', false)
+  values ('work-tickets', 'work-tickets', false)
   on conflict (id) do nothing;
-drop policy if exists "Admins read card receipt files" on storage.objects;
-create policy "Admins read card receipt files" on storage.objects
-  for select to authenticated using (bucket_id = 'card-receipts' and public.is_admin());
-drop policy if exists "Admins write card receipt files" on storage.objects;
-create policy "Admins write card receipt files" on storage.objects
-  for insert to authenticated with check (bucket_id = 'card-receipts' and public.is_admin());
--- Drivers upload their own receipt photos into the same bucket from the banner.
-drop policy if exists "Drivers write card receipt files" on storage.objects;
-create policy "Drivers write card receipt files" on storage.objects
-  for insert to authenticated with check (bucket_id = 'card-receipts');
 
--- Plaid Items: one row per card/bank connection made through the "Connect a
--- card" button. Holds the permanent access_token (server-only — admin RLS keeps
--- it out of every non-admin's reach, and the client never selects the token).
--- Granted to service_role so the sync/cron can read tokens.
-create table if not exists public.plaid_items (
-  id uuid primary key default gen_random_uuid(),
-  item_id text not null unique,
-  access_token text not null,
-  institution_name text,
-  created_at timestamptz not null default now()
-);
-grant select, insert, update, delete on public.plaid_items to authenticated;
-grant select, insert, update, delete on public.plaid_items to service_role;
-alter table public.plaid_items enable row level security;
-drop policy if exists "Admins manage plaid_items" on public.plaid_items;
-create policy "Admins manage plaid_items" on public.plaid_items
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+-- Crew upload their own ticket photos; staff can also upload.
+drop policy if exists "wt write" on storage.objects;
+create policy "wt write" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'work-tickets');
+
+-- Staff (admin / office / contractor / funder) read any ticket file; crew read
+-- the files they uploaded themselves (stored under a "<uid>/" path prefix).
+drop policy if exists "wt staff read" on storage.objects;
+create policy "wt staff read" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'work-tickets'
+    and (
+      public.is_admin()
+      or public.has_role(array['office','contractor','funder'])
+      or (storage.foldername(name))[1] = auth.uid()::text
+    )
+  );
+
+drop policy if exists "wt staff delete" on storage.objects;
+create policy "wt staff delete" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'work-tickets'
+    and (public.is_admin() or public.has_role(array['office']))
+  );
 
 
 -- ==========================================================================
