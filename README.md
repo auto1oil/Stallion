@@ -58,9 +58,17 @@ an **Intuit developer** account for QuickBooks invoicing.
 1. supabase.com → New project. Pick the region closest to your crews.
 2. **SQL Editor → New query** → paste all of `supabase-setup.sql` → Run.
    It creates every table, policy, trigger, and the `invoices` and
-   `work-tickets` storage buckets. The whole file is safe to re-run.
-   If bucket creation is blocked, create them by hand under **Storage**
-   (both private, named `invoices` and `work-tickets`) and re-run.
+   `work-tickets` storage buckets. The whole file is safe to re-run — it was
+   checked against a clean PostgreSQL 16 database, twice through, with no
+   errors. If bucket creation is blocked, create them by hand under
+   **Storage** (both private, named `invoices` and `work-tickets`) and re-run.
+
+   Verify it took:
+
+   ```sql
+   select count(*) from public.work_orders;   -- 0, and no error
+   select policyname from pg_policies where tablename = 'work_orders';  -- 8 rows
+   ```
 3. **Settings → API** — copy the **Project URL** and the **anon public** key,
    and the **service_role** key (server-only; it never goes near the browser).
 
