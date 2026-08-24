@@ -248,9 +248,14 @@ export async function invoiceWorkOrder(db: SupabaseClient, workOrderId: string):
     };
   }
 
+  // The office invoices as soon as it approves, which is usually BEFORE the
+  // funder has released funds — so raising the invoice doesn't by itself
+  // finish the chain. A ticket only becomes 'invoiced' once both have
+  // happened; until the funder signs off it stays 'office_approved' and keeps
+  // showing up on their queue.
   const docNumber = invoice.DocNumber || invoice.Id;
   await db.from('work_orders').update({
-    status: 'invoiced',
+    status: order.funder_approved_at ? 'invoiced' : order.status,
     qb_invoice_id: invoice.Id,
     qb_invoice_number: docNumber,
     qb_synced_at: new Date().toISOString(),

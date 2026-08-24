@@ -121,7 +121,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   } else {
     patch.funder_approved_by = user.id;
     patch.funder_approved_at = now;
-    patch.status = 'funds_approved';
+    // The office usually invoices at its own approval, before funds are
+    // released — so the funder's sign-off is what finishes an
+    // already-invoiced ticket.
+    patch.status = wo.qb_invoice_id ? 'invoiced' : 'funds_approved';
   }
 
   const { data: updated, error } = await db

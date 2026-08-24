@@ -579,11 +579,12 @@ create policy businesses_admin_all on public.businesses
   using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','master_admin')))
   with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin','master_admin')));
 
--- Office, contractors and funders read the customer directory so they can
--- review and invoice work orders against it.
+-- Staff read the customer directory: the crew picks the customer on a field
+-- ticket, and office/contractors/funders review and invoice against it.
 create policy businesses_staff_read on public.businesses
   for select to authenticated
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('office','contractor','funder')));
+  using (exists (select 1 from public.profiles p where p.id = auth.uid()
+                   and p.role in ('office','driver','mechanic','contractor','funder')));
 
 create policy businesses_member_read on public.businesses
   for select to authenticated
@@ -2297,11 +2298,13 @@ create policy "wo crew read own" on public.work_orders
   for select to authenticated
   using (submitted_by = auth.uid());
 
+-- 'rejected' is in the list because a ticket the office sent back has to be
+-- fixable: the crew edits it and submits again.
 drop policy if exists "wo crew edit own draft" on public.work_orders;
 create policy "wo crew edit own draft" on public.work_orders
   for update to authenticated
-  using (submitted_by = auth.uid() and status in ('draft','submitted'))
-  with check (submitted_by = auth.uid() and status in ('draft','submitted'));
+  using (submitted_by = auth.uid() and status in ('draft','submitted','rejected'))
+  with check (submitted_by = auth.uid() and status in ('draft','submitted','rejected'));
 
 -- Contractor: read every ticket for their crews and approve their portion.
 drop policy if exists "wo contractor read" on public.work_orders;

@@ -3,8 +3,8 @@
 // DELETE /api/work-orders/[id] — remove a draft (its author, or an admin).
 //
 // Only the editable columns are ever written here. Status moves are limited to
-// the one a crew member is allowed to make themselves — draft → submitted;
-// every approval goes through the routes under ./approve.
+// the one a crew member is allowed to make themselves — draft (or a ticket the
+// office sent back) → submitted; every approval goes through ./approve.
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
@@ -40,6 +40,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (body.submit === true) {
     patch.status = 'submitted';
     patch.submitted_at = new Date().toISOString();
+    // Resubmitting clears the note the office sent it back with, so a fixed
+    // ticket doesn't keep showing the old complaint.
+    patch.rejected_reason = null;
   }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ ok: false, error: 'nothing to update' }, { status: 400 });

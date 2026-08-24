@@ -85,7 +85,12 @@ export default function WorkOrderForm({
 
   const id = workOrder?.id ?? null;
   const status = workOrder?.status ?? 'draft';
-  const locked = status === 'invoiced' || (status === 'funds_approved' && !canApprove);
+  // A draft or a sent-back ticket is the crew's to edit; once the office has
+  // it, only the office can change it.
+  const editable = status === 'draft' || status === 'rejected' || status === 'submitted';
+  // An invoiced ticket is closed to everyone — the money is booked in
+  // QuickBooks, so a change here would silently disagree with the invoice.
+  const locked = status === 'invoiced' || (!editable && !canApprove);
 
   const set = (k: string, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -126,7 +131,6 @@ export default function WorkOrderForm({
 
   function body(): Record<string, unknown> {
     return {
-      customer_id: null,
       business_id: draft.customer_id || null,
       customer_number: draft.customer_number.trim() || null,
       job_number: draft.job_number.trim() || null,
@@ -331,13 +335,13 @@ export default function WorkOrderForm({
             >
               {busy === 'save' ? 'Saving…' : 'Save draft'}
             </button>
-            {status === 'draft' && (
+            {(status === 'draft' || status === 'rejected') && (
               <button
                 onClick={() => save(true)}
                 disabled={!!busy}
                 className="px-4 py-2 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 disabled:opacity-50 font-medium"
               >
-                {busy === 'submit' ? 'Submitting…' : 'Submit ticket'}
+                {busy === 'submit' ? 'Submitting…' : status === 'rejected' ? 'Fix and resubmit' : 'Submit ticket'}
               </button>
             )}
           </>

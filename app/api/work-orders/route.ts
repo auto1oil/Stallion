@@ -37,7 +37,8 @@ export async function GET(req: Request) {
   // ("submitted") or a stage of the chain ("office_approved,funds_approved").
   if (status) {
     const wanted = status.split(',').map((s) => s.trim()).filter(Boolean);
-    query = wanted.length > 1 ? query.in('status', wanted) : query.eq('status', wanted[0]);
+    if (wanted.length > 1) query = query.in('status', wanted);
+    else if (wanted.length === 1) query = query.eq('status', wanted[0]);
   }
   if (jobNumber) query = query.eq('job_number', jobNumber);
   if (mine) query = query.eq('submitted_by', user.id);
