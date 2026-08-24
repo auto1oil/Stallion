@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
-import AdminSubNav from '@/components/AdminSubNav';
 import WorkSitesManager from '@/components/WorkSitesManager';
 import SelfClock from '@/components/SelfClock';
 import { fmtClock, dayKey, todayKey, isoToMountainInput, mountainInputToIso, tzAbbrev } from '@/lib/timeclock-tz';
@@ -13,10 +12,6 @@ type HoursEntry = {
   date: string;
   hours: number;
   notes: string | null;
-  // For calculated entries (salesmen) so the UI can show "auto" badge
-  // and visit count instead of free-text notes.
-  is_calculated?: boolean;
-  visit_count?: number;
   // For time-clock entries.
   is_clock?: boolean;
   session_count?: number;
@@ -35,16 +30,8 @@ type Person = {
   id: string;
   full_name: string | null;
   email: string;
-  role: 'driver' | 'salesman' | 'office' | 'mechanic' | 'labor' | 'admin' | 'master_admin';
+  role: 'driver' | 'office' | 'contractor' | 'funder' | 'mechanic' | 'labor' | 'admin' | 'master_admin';
   remote_clock?: boolean | null;
-};
-
-type Visit = {
-  id: string;
-  salesman_id: string | null;
-  salesman_name: string;
-  visit_date: string;
-  visit_at: string;
 };
 
 function weekStart(date: Date): Date {
@@ -168,15 +155,6 @@ function SessionEditRow({ session, siteNames, pings, onSave, onDelete }: {
       )}
     </div>
   );
-}
-
-// Same formula as the Sales Log: (last visit − first visit) + 0.5 hr wrap-up.
-function calcDayHoursFromVisits(visits: Visit[]): number {
-  if (visits.length === 0) return 0;
-  const times = visits.map((v) => new Date(v.visit_at).getTime());
-  const first = Math.min(...times);
-  const last = Math.max(...times);
-  return (last - first) / (1000 * 60 * 60) + 0.5;
 }
 
 export default function AdminHoursPage() {
@@ -377,7 +355,7 @@ export default function AdminHoursPage() {
     const { data } = await supabase
       .from('profiles')
       .select('id, full_name, email, role, remote_clock')
-      .in('role', ['driver', 'salesman', 'office', 'mechanic', 'labor', 'admin', 'master_admin'])
+      .in('role', ['driver', 'office', 'contractor', 'mechanic', 'labor', 'admin', 'master_admin'])
       .order('role')
       .order('full_name');
     setPeople((data as Person[]) || []);
@@ -389,14 +367,12 @@ export default function AdminHoursPage() {
   }
 
   async function loadWeeks() {
-    // Pull recent dates from hours, salesman_visits AND the time clock so the
-    // dropdown shows any week that has data — manual, calculated, OR punched.
-    // (Without time_clock, a week where people only clocked in/out — no manual
-    // hours row, no visit — was missing from the selector even though the
-    // payroll data existed and loadEntries would show it.)
-    const [hoursRes, visitsRes, clockRes] = await Promise.all([
+    // Pull recent dates from hours AND the time clock so the dropdown shows any
+    // week that has data — manual OR punched. (Without time_clock, a week where
+    // people only clocked in/out — no manual hours row — was missing from the
+    // selector even though the payroll data existed and loadEntries would show it.)
+    const [hoursRes, clockRes] = await Promise.all([
       supabase.from('hours').select('date').order('date', { ascending: false }),
-      supabase.from('salesman_visits').select('visit_date').order('visit_date', { ascending: false }),
       supabase.from('time_clock').select('clock_in_at').order('clock_in_at', { ascending: false }),
     ]);
     const keys = new Set<string>();
@@ -404,12 +380,6 @@ export default function AdminHoursPage() {
     (hoursRes.data || []).forEach((r: any) => {
       if (r.date) {
         const [y, m, d] = r.date.split('-').map(Number);
-        keys.add(weekKey(new Date(y, m - 1, d)));
-      }
-    });
-    (visitsRes.data || []).forEach((r: any) => {
-      if (r.visit_date) {
-        const [y, m, d] = r.visit_date.split('-').map(Number);
         keys.add(weekKey(new Date(y, m - 1, d)));
       }
     });
@@ -430,40 +400,6 @@ export default function AdminHoursPage() {
       .gte('date', start)
       .lt('date', end)
       .order('date', { ascending: true });
-
-    // 2) Visits for the same week (salesmen) — derive synthetic entries
-    const { data: visitsRows } = await supabase
-      .from('salesman_visits')
-      .select('id, salesman_id, salesman_name, visit_date, visit_at')
-      .gte('visit_date', start)
-      .lt('visit_date', end);
-
-    // Group visits by salesman_id + visit_date
-    const visitsByPersonDay = new Map<string, Visit[]>();
-    ((visitsRows as Visit[]) || []).forEach((v) => {
-      if (!v.salesman_id) return;
-      const k = `${v.salesman_id}__${v.visit_date}`;
-      const arr = visitsByPersonDay.get(k) || [];
-      arr.push(v);
-      visitsByPersonDay.set(k, arr);
-    });
-
-    const calculated: HoursEntry[] = [];
-    visitsByPersonDay.forEach((dayVisits, k) => {
-      const [salesmanId, date] = k.split('__');
-      const name = dayVisits[0].salesman_name;
-      const hrs = calcDayHoursFromVisits(dayVisits);
-      calculated.push({
-        id: `calc-${salesmanId}-${date}`,
-        employee_id: salesmanId,
-        employee_name: name,
-        date,
-        hours: hrs,
-        notes: null,
-        is_calculated: true,
-        visit_count: dayVisits.length,
-      });
-    });
 
     // 3) Time-clock sessions for the same week (completed ones roll into hours).
     const { data: clockRows } = await supabase
@@ -512,7 +448,6 @@ export default function AdminHoursPage() {
 
     const all: HoursEntry[] = [
       ...((hoursRows as HoursEntry[]) || []),
-      ...calculated,
       ...clocked,
     ].sort((a, b) => a.date.localeCompare(b.date));
 
@@ -556,8 +491,8 @@ export default function AdminHoursPage() {
           e.date,
           dayLabel(e.date).split(',')[0],
           Number(e.hours).toFixed(2),
-          e.is_calculated ? 'auto (visits)' : e.is_clock ? 'time clock' : 'manual',
-          e.is_calculated ? `${e.visit_count} visit(s)` : e.is_clock ? `${e.session_count} session(s)` : (e.notes || ''),
+          e.is_clock ? 'time clock' : 'manual',
+          e.is_clock ? `${e.session_count} session(s)` : (e.notes || ''),
         ]);
       });
       const total = personEntries.reduce((sum, e) => sum + Number(e.hours), 0);
@@ -585,7 +520,7 @@ export default function AdminHoursPage() {
   if (allowed === false) {
     return (
       <div className="max-w-md">
-        <p className="text-sm text-gray-600">This board is for admins. See your own time under <a href="/salesman/hours" className="text-brand-700 underline">My hours</a>.</p>
+        <p className="text-sm text-gray-600">This board is for admins. See your own time under <a href="/driver/hours" className="text-brand-700 underline">My hours</a>.</p>
       </div>
     );
   }
@@ -595,13 +530,6 @@ export default function AdminHoursPage() {
 
   return (
     <div>
-      <AdminSubNav
-        tabs={[
-          { href: '/admin/sales-log', label: 'Visit log' },
-          { href: '/admin/hours', label: 'Time clock' },
-          { href: '/admin/commissions', label: 'Commissions' },
-        ]}
-      />
       <div className="overflow-x-auto mb-3 -mx-4 px-4">
         <div className="flex items-center gap-2 min-w-max">
           <h1 className="text-lg font-semibold whitespace-nowrap mr-2">Time clock</h1>
@@ -627,8 +555,7 @@ export default function AdminHoursPage() {
 
       <p className="text-xs text-gray-500 mb-4">
         Tap an employee&apos;s pill to clock them in; it turns into <span className="font-medium">Clock out</span> while
-        they&apos;re on the clock, and the session rolls into their hours below. Salesmen&apos;s hours are also calculated
-        automatically from their visits: <span className="font-mono">(last − first) + 0.5 hr</span>.
+        they&apos;re on the clock, and the session rolls into their hours below.
       </p>
       <p className="text-[11px] text-gray-400 mb-4">
         📍 While someone is clocked in <em>and</em> has the app open, their phone reports its location. Tap{' '}
@@ -690,7 +617,7 @@ export default function AdminHoursPage() {
                   <div className="flex items-center gap-3 flex-wrap">
                     {personEntries.length === 0 ? (
                       <span className="text-xs text-gray-400">
-                        {p.role === 'salesman' ? 'No visits logged' : 'No hours logged'}
+                        No hours logged
                       </span>
                     ) : (
                       <div className="text-xs flex gap-2 items-baseline">
@@ -773,12 +700,7 @@ export default function AdminHoursPage() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-gray-600 break-words">
-                            {e.is_calculated ? (
-                              <span className="text-gray-500">
-                                <span className="text-[10px] uppercase tracking-wide bg-brand-50 text-brand-900 px-1.5 py-0.5 rounded">auto</span>{' '}
-                                {e.visit_count} visit{e.visit_count === 1 ? '' : 's'}
-                              </span>
-                            ) : e.is_clock ? (
+                            {e.is_clock ? (
                               <span className="text-gray-500">
                                 <span className="text-[10px] uppercase tracking-wide bg-green-50 text-green-800 px-1.5 py-0.5 rounded">clock</span>{' '}
                                 {e.session_count} session{e.session_count === 1 ? '' : 's'}

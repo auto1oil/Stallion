@@ -3,7 +3,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { listExpenseAccounts } from '@/lib/quickbooks-bills';
+import { listExpenseAccounts } from '@/lib/quickbooks-vendors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

@@ -13,7 +13,9 @@ import { FEATURES, type FeatureGroup } from '@/lib/feature-catalog';
 // Same rule as the nav's active check: exact match for the role index routes,
 // prefix match for everything else.
 function pathMatches(pathname: string, href: string): boolean {
-  if (href === '/admin' || href === '/driver' || href === '/salesman') return pathname === href;
+  if (['/admin', '/driver', '/tickets', '/work-orders', '/contractor', '/funder'].includes(href)) {
+    return pathname === href;
+  }
   return pathname === href || pathname.startsWith(href + '/');
 }
 

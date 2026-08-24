@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase-browser';
 
 // A two-option sub-navigation shown to admins at the top of grouped pages
 // (e.g. Customers → Existing customers / Customers visited). Hidden for
-// non-admins, so shared pages like /salesman/businesses look unchanged to
+// non-admins, so shared pages look unchanged to
 // salesmen.
 export default function AdminSubNav({ tabs }: { tabs: { href: string; label: string }[] }) {
   const pathname = usePathname();

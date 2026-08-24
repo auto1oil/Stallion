@@ -14,7 +14,6 @@ type Prefs = {
   new_order: boolean;
   order_status: boolean;
   new_customer: boolean;
-  visit_request: boolean;
   task: boolean;
 };
 
@@ -22,7 +21,6 @@ const PREF_COL: Record<keyof Prefs, string> = {
   new_order: 'notify_on_new_order',
   order_status: 'notify_on_order_status',
   new_customer: 'notify_on_new_customer',
-  visit_request: 'notify_on_visit_request',
   task: 'notify_on_task',
 };
 
@@ -30,7 +28,6 @@ const PREF_LABEL: { key: keyof Prefs; title: string; desc: string }[] = [
   { key: 'new_order',     title: 'New orders',        desc: 'When a new order is placed.' },
   { key: 'order_status',  title: 'Order status',      desc: 'When an order moves to out for delivery or delivered.' },
   { key: 'new_customer',  title: 'New customers',     desc: 'When a new customer signs up and needs approval.' },
-  { key: 'visit_request', title: 'Visit requests',    desc: 'When a customer requests an in-person visit.' },
   { key: 'task',          title: 'Tasks',             desc: 'When you are assigned a task.' },
 ];
 
@@ -50,8 +47,6 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<'light' | 'medium' | 'dark'>('light');
   // Floating shortcut button (per-device, localStorage).
   const [fab, setFab] = useState<FabConfig | null>(null);
-  const [visitCfg, setVisitCfg] = useState<{ green: number; yellow: number; orange: number; start: number; interval: number; adminAlert: number } | null>(null);
-  const [visitSaved, setVisitSaved] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
 
@@ -83,21 +78,6 @@ export default function SettingsPage() {
       .catch(() => {});
   }, []);
 
-  async function saveVisitCfg(next: NonNullable<typeof visitCfg>) {
-    setVisitCfg(next);
-    setVisitSaved(false);
-    await supabase.from('app_settings').upsert([
-      { key: 'visit_green_days', value: String(next.green) },
-      { key: 'visit_yellow_days', value: String(next.yellow) },
-      { key: 'visit_orange_days', value: String(next.orange) },
-      { key: 'visit_reminder_start', value: String(next.start) },
-      { key: 'visit_reminder_interval', value: String(next.interval) },
-      { key: 'visit_admin_alert', value: String(next.adminAlert) },
-    ], { onConflict: 'key' });
-    setVisitSaved(true);
-    setTimeout(() => setVisitSaved(false), 1500);
-  }
-
   async function refreshPush() {
     // Re-subscribe if the OS dropped it (and the user didn't opt out), so this
     // screen shows the true "on" state instead of a stale "off".
@@ -118,7 +98,7 @@ export default function SettingsPage() {
 
       const { data } = await supabase
         .from('profiles')
-        .select('role, full_name, email, avatar_url, message_alert_mode, notify_on_new_order, notify_on_order_status, notify_on_new_customer, notify_on_visit_request, notify_on_task')
+        .select('role, full_name, email, avatar_url, message_alert_mode, notify_on_new_order, notify_on_order_status, notify_on_new_customer, notify_on_task')
         .eq('id', user.id)
         .single();
       const p = data as (Record<string, boolean | null> & { role?: string; full_name?: string | null; email?: string | null; avatar_url?: string | null; message_alert_mode?: AlertMode }) | null;
@@ -126,24 +106,10 @@ export default function SettingsPage() {
       setMe({ id: user.id, name: p?.full_name ?? null, email: p?.email ?? null });
       setAvatarUrl(p?.avatar_url ?? null);
       setAlertMode((p?.message_alert_mode as AlertMode) ?? 'sound');
-      const { data: vs } = await supabase
-        .from('app_settings')
-        .select('key, value')
-        .in('key', ['visit_green_days', 'visit_yellow_days', 'visit_orange_days', 'visit_reminder_start', 'visit_reminder_interval', 'visit_admin_alert']);
-      const m = Object.fromEntries(((vs as { key: string; value: string }[]) || []).map((r) => [r.key, Number(r.value)]));
-      setVisitCfg({
-        green: m.visit_green_days || 30,
-        yellow: m.visit_yellow_days || 60,
-        orange: m.visit_orange_days || 90,
-        start: m.visit_reminder_start || 45,
-        interval: m.visit_reminder_interval || 5,
-        adminAlert: m.visit_admin_alert || 90,
-      });
       setPrefs({
         new_order:     p?.notify_on_new_order ?? true,
         order_status:  p?.notify_on_order_status ?? true,
         new_customer:  p?.notify_on_new_customer ?? true,
-        visit_request: p?.notify_on_visit_request ?? true,
         task:          p?.notify_on_task ?? true,
       });
     })();
@@ -528,13 +494,6 @@ export default function SettingsPage() {
               <span className="text-xs text-gray-400">Manage staff &amp; roles →</span>
             </Link>
             <Link
-              href="/admin/inventory"
-              className="flex items-center justify-between px-3 py-2 rounded-md border border-gray-200 hover:bg-gray-50"
-            >
-              <span className="text-sm font-medium">Inventory setup</span>
-              <span className="text-xs text-gray-400">Toggle items on/off →</span>
-            </Link>
-            <Link
               href="/admin/quickbooks"
               className="flex items-center justify-between px-3 py-2 rounded-md border border-gray-200 hover:bg-gray-50"
             >
@@ -547,59 +506,6 @@ export default function SettingsPage() {
 
       {(role === 'admin' || role === 'master_admin') && <SupportChatSettings />}
 
-      {(role === 'admin' || role === 'master_admin') && visitCfg && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4 mt-5">
-          <h2 className="font-semibold mb-1">Visit reminders</h2>
-          <p className="text-xs text-gray-500 mb-3">
-            Controls the days-since-visit colors on Customers and when reps/admins get nudged.
-          </p>
-          <div className="space-y-3">
-            <div className="text-xs font-medium text-gray-600">Color thresholds (days)</div>
-            <div className="grid grid-cols-3 gap-2">
-              {([
-                ['Green up to', 'green'],
-                ['Yellow up to', 'yellow'],
-                ['Orange up to', 'orange'],
-              ] as const).map(([label, key]) => (
-                <label key={key} className="text-xs text-gray-600">
-                  {label}
-                  <input
-                    type="number"
-                    value={visitCfg[key]}
-                    onChange={(e) => setVisitCfg({ ...visitCfg, [key]: Number(e.target.value) })}
-                    className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="text-xs font-medium text-gray-600 pt-1">Reminder cadence (days)</div>
-            <div className="grid grid-cols-3 gap-2">
-              {([
-                ['Rep nudge at', 'start'],
-                ['Repeat every', 'interval'],
-                ['Admin alert at', 'adminAlert'],
-              ] as const).map(([label, key]) => (
-                <label key={key} className="text-xs text-gray-600">
-                  {label}
-                  <input
-                    type="number"
-                    value={visitCfg[key]}
-                    onChange={(e) => setVisitCfg({ ...visitCfg, [key]: Number(e.target.value) })}
-                    className="w-full mt-1 px-2 py-1 border border-gray-300 rounded text-sm"
-                  />
-                </label>
-              ))}
-            </div>
-            <button
-              onClick={() => saveVisitCfg(visitCfg)}
-              className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900"
-            >
-              Save
-            </button>
-            {visitSaved && <span className="text-xs text-green-700 ml-2">Saved ✓</span>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

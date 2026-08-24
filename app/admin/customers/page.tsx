@@ -5,18 +5,9 @@ import { createClient } from '@/lib/supabase-browser';
 import { isInactive, latestDay } from '@/lib/customer-active';
 import CustomerDocuments from '@/components/CustomerDocuments';
 import AdminSubNav from '@/components/AdminSubNav';
-import VisitForm from '@/components/VisitForm';
 import BillingNotesBox from '@/components/BillingNotesBox';
 
 const COUNTIES = ['Utah County', 'Salt Lake County', 'Davis County', 'Weber County'] as const;
-
-// Fuel products, in display order, for the special-pricing price readout.
-const FUEL_PRODUCTS = ['Clear Fuel', 'Dyed Fuel', '85-Octane', '91-Octane'] as const;
-// The compact card box shows only Clear + Dyed (no gasoline, no gallon tiers).
-const CARD_FUEL_PRODUCTS = ['Clear Fuel', 'Dyed Fuel'] as const;
-const FUEL_SHORT: Record<string, string> = {
-  'Clear Fuel': 'Clear', 'Dyed Fuel': 'Dyed', '85-Octane': '85', '91-Octane': '91',
-};
 
 type Customer = {
   id: string;
@@ -54,20 +45,6 @@ type Customer = {
   } | null;
 };
 
-// One editable per-customer fuel tier row (strings while editing).
-type CustTierRow = { min: string; max: string; markup: string };
-
-// Per-customer salesman commission settings (working copy in state).
-type Commission = { percent: number | null; fuelMode: 'percent' | 'per_gallon'; fuelPerGallon: number | null };
-type CommRow = {
-  id: string;
-  fuel_special_pricing: boolean | null;
-  auto_invoice_orders: boolean | null;
-  commission_percent: number | null;
-  fuel_commission_mode: string | null;
-  fuel_commission_per_gallon: number | null;
-};
-
 // Map QB payment-method/term values to a short label + color so admins
 // can scan the list and know at a glance whether to charge the card,
 // look for the driver's check, or mail an invoice.
@@ -103,7 +80,7 @@ function tonalClass(tone: 'green' | 'blue' | 'amber' | 'gray'): string {
   }
 }
 
-// Normalize a business name for matching against the salesman_visits log
+// Normalize a business name for matching duplicate customer records
 // (case-insensitive, strip possessive + common suffixes + punctuation).
 function normBizName(raw: string): string {
   return raw
@@ -113,15 +90,6 @@ function normBizName(raw: string): string {
     .replace(/[^a-z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// Days-since-last-visit color thresholds (days). Defaults; editable in Settings.
-const DEFAULT_VISIT_THRESHOLDS = { green: 30, yellow: 60, orange: 90 };
-function visitAgeClass(days: number, t: { green: number; yellow: number; orange: number }): string {
-  if (days <= t.green) return 'bg-green-100 text-green-800 border-green-200';
-  if (days <= t.yellow) return 'bg-amber-100 text-amber-800 border-amber-200';
-  if (days <= t.orange) return 'bg-orange-100 text-orange-800 border-orange-200';
-  return 'bg-red-100 text-red-800 border-red-200';
 }
 
 // ── Order cadence + past orders ──────────────────────────────────────────────
@@ -323,19 +291,7 @@ export default function AdminCustomersPage() {
   const [repFilter, setRepFilter] = useState<string>('');
   const [meRole, setMeRole] = useState<string | null>(null);
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
-  // null = closed; otherwise the business name to pre-fill ('' = blank form).
-  const [logPrefill, setLogPrefill] = useState<string | null>(null);
-  const [lastVisitByName, setLastVisitByName] = useState<Map<string, string>>(new Map());
-  const [visitThresholds, setVisitThresholds] = useState(DEFAULT_VISIT_THRESHOLDS);
-  // Per-business special-pricing flag + that business's own fuel tiers.
-  const [specialByBiz, setSpecialByBiz] = useState<Map<string, boolean>>(new Map());
   const [autoInvoiceByBiz, setAutoInvoiceByBiz] = useState<Map<string, boolean>>(new Map());
-  const [commByBiz, setCommByBiz] = useState<Map<string, Commission>>(new Map());
-  const [custTiers, setCustTiers] = useState<Map<string, CustTierRow[]>>(new Map());
-  const [tierSaving, setTierSaving] = useState<string | null>(null);
-  const [tierMsg, setTierMsg] = useState<Map<string, string>>(new Map());
-  // Latest rack price per fuel product, for the special-pricing readout.
-  const [rackByProduct, setRackByProduct] = useState<Map<string, number>>(new Map());
   // In-app order dates (customer_orders.created_at) grouped by customer id,
   // merged with cached QB invoice dates for the order-cadence + past-orders UI.
   const [appOrdersByCust, setAppOrdersByCust] = useState<Map<string, string[]>>(new Map());
@@ -347,18 +303,6 @@ export default function AdminCustomersPage() {
       setMeRole(data?.role ?? null);
       setMe({ id: user.id, name: data?.full_name || data?.email || 'Admin' });
     });
-    supabase
-      .from('app_settings')
-      .select('key, value')
-      .in('key', ['visit_green_days', 'visit_yellow_days', 'visit_orange_days'])
-      .then(({ data }) => {
-        const s = Object.fromEntries(((data as { key: string; value: string }[]) || []).map((r) => [r.key, Number(r.value)]));
-        setVisitThresholds({
-          green: s.visit_green_days || DEFAULT_VISIT_THRESHOLDS.green,
-          yellow: s.visit_yellow_days || DEFAULT_VISIT_THRESHOLDS.yellow,
-          orange: s.visit_orange_days || DEFAULT_VISIT_THRESHOLDS.orange,
-        });
-      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -390,7 +334,7 @@ export default function AdminCustomersPage() {
 
   async function load() {
     setLoading(true);
-    const [cust, docsRes, lrRes, repsRes, bizRes, visitsRes, mkRes, spRes, fmapRes, rackRes, ordersRes] = await Promise.all([
+    const [cust, docsRes, lrRes, repsRes, bizRes, spRes, ordersRes] = await Promise.all([
       supabase
         .from('profiles')
         .select(`
@@ -426,27 +370,11 @@ export default function AdminCustomersPage() {
         .from('businesses')
         .select('id, name, qb_customer_id')
         .order('name'),
-      supabase
-        .from('salesman_visits')
-        .select('business_name, visit_at'),
-      supabase
-        .from('customer_fuel_tiers')
-        .select('business_id, min_gallons, max_gallons, markup, sort_order'),
-      // Special-pricing flags — kept as its own query so a missing column
-      // (before the fuel migration is run) can never blank the customer list.
+      // Auto-invoice flags — kept as its own query so a missing column can
+      // never blank the customer list.
       supabase
         .from('businesses')
-        .select('id, fuel_special_pricing, auto_invoice_orders, commission_percent, fuel_commission_mode, fuel_commission_per_gallon'),
-      // Rack mappings + recent rack prices, to show each special-pricing
-      // customer their resulting $/gal (rack + their markup).
-      supabase
-        .from('fuel_price_mappings')
-        .select('app_product, rack_location, rack_product'),
-      supabase
-        .from('rack_prices')
-        .select('location, product, price, eff_date, received_at')
-        .order('received_at', { ascending: false })
-        .limit(500),
+        .select('id, auto_invoice_orders'),
       // In-app order dates, newest-first, for the order-cadence bubble.
       supabase
         .from('customer_orders')
@@ -473,57 +401,13 @@ export default function AdminCustomersPage() {
     setLinkRequests((lrRes.data as unknown as LinkRequest[]) || []);
     setReps((repsRes.data as SalesRep[]) || []);
     setAllBusinesses((bizRes.data as { id: string; name: string; qb_customer_id: string | null }[]) || []);
-    // Map normalized business name -> most recent visit timestamp.
-    const vmap = new Map<string, string>();
-    for (const v of (visitsRes.data as { business_name: string | null; visit_at: string }[]) || []) {
-      const key = normBizName(v.business_name || '');
-      if (!key) continue;
-      const cur = vmap.get(key);
-      if (!cur || v.visit_at > cur) vmap.set(key, v.visit_at);
-    }
-    setLastVisitByName(vmap);
-
-    // Special-pricing flags from the dedicated query (empty if the column
-    // doesn't exist yet — everyone then shows as default pricing).
-    const sp = new Map<string, boolean>();
+    // Auto-invoice flags from the dedicated query (empty if the column
+    // doesn't exist yet).
     const ai = new Map<string, boolean>();
-    const comm = new Map<string, Commission>();
-    for (const b of (spRes.data as CommRow[]) || []) {
-      sp.set(b.id, !!b.fuel_special_pricing);
+    for (const b of (spRes.data as { id: string; auto_invoice_orders: boolean | null }[]) || []) {
       ai.set(b.id, !!b.auto_invoice_orders);
-      comm.set(b.id, {
-        percent: b.commission_percent ?? null,
-        fuelMode: (b.fuel_commission_mode === 'per_gallon' ? 'per_gallon' : 'percent'),
-        fuelPerGallon: b.fuel_commission_per_gallon ?? null,
-      });
     }
-    setSpecialByBiz(sp);
     setAutoInvoiceByBiz(ai);
-    setCommByBiz(comm);
-
-    // Group each business's own tier rows (sorted) for the inline editor.
-    const tmap = new Map<string, CustTierRow[]>();
-    const tierRows = (mkRes.data as { business_id: string; min_gallons: number; max_gallons: number | null; markup: number; sort_order: number }[]) || [];
-    for (const r of [...tierRows].sort((a, b) => (a.sort_order - b.sort_order) || (a.min_gallons - b.min_gallons))) {
-      const arr = tmap.get(r.business_id) || [];
-      arr.push({ min: String(r.min_gallons), max: r.max_gallons == null ? '' : String(r.max_gallons), markup: String(r.markup) });
-      tmap.set(r.business_id, arr);
-    }
-    setCustTiers(tmap);
-
-    // Latest rack price per (location, product), then resolve to app products
-    // via the mappings → rackByProduct used in the special-pricing readout.
-    const latestRack = new Map<string, number>();
-    for (const r of (rackRes.data as { location: string; product: string; price: number }[]) || []) {
-      const k = `${r.location}|||${r.product}`;
-      if (!latestRack.has(k)) latestRack.set(k, Number(r.price)); // received_at desc → first is newest
-    }
-    const rbp = new Map<string, number>();
-    for (const mp of (fmapRes.data as { app_product: string; rack_location: string; rack_product: string }[]) || []) {
-      const base = latestRack.get(`${mp.rack_location}|||${mp.rack_product}`);
-      if (base != null) rbp.set(mp.app_product, base);
-    }
-    setRackByProduct(rbp);
     setLoading(false);
   }
 
@@ -595,94 +479,11 @@ export default function AdminCustomersPage() {
     load();
   }
 
-  // Toggle a business's special-pricing flag. When turned on with no tiers
-  // yet, seed an editable copy of the default tiers so the admin has a start.
-  async function toggleSpecialPricing(businessId: string, on: boolean) {
-    setSpecialByBiz((m) => new Map(m).set(businessId, on));
-    await supabase.from('businesses').update({ fuel_special_pricing: on }).eq('id', businessId);
-    if (on && !(custTiers.get(businessId)?.length)) {
-      const { data } = await supabase
-        .from('fuel_pricing_tiers')
-        .select('min_gallons, max_gallons, markup, sort_order');
-      const seed = ((data as { min_gallons: number; max_gallons: number | null; markup: number; sort_order: number }[]) || [])
-        .sort((a, b) => (a.sort_order - b.sort_order) || (a.min_gallons - b.min_gallons))
-        .map((t) => ({ min: String(t.min_gallons), max: t.max_gallons == null ? '' : String(t.max_gallons), markup: String(t.markup) }));
-      setCustTiers((m) => new Map(m).set(businessId, seed));
-    }
-  }
-
   // Toggle whether staff-placed orders for this business skip approval and
   // auto-invoice + post to the warehouse.
   async function toggleAutoInvoice(businessId: string, on: boolean) {
     setAutoInvoiceByBiz((m) => new Map(m).set(businessId, on));
     await supabase.from('businesses').update({ auto_invoice_orders: on }).eq('id', businessId);
-  }
-
-  // Salesman commission settings for a customer (saved per business).
-  function updateCommission(businessId: string, patch: Partial<Commission>) {
-    setCommByBiz((m) => {
-      const cur = m.get(businessId) || { percent: null, fuelMode: 'percent' as const, fuelPerGallon: null };
-      return new Map(m).set(businessId, { ...cur, ...patch });
-    });
-  }
-  async function saveCommission(businessId: string) {
-    const c = commByBiz.get(businessId) || { percent: null, fuelMode: 'percent' as const, fuelPerGallon: null };
-    await supabase.from('businesses').update({
-      commission_percent: c.percent,
-      fuel_commission_mode: c.fuelMode,
-      fuel_commission_per_gallon: c.fuelMode === 'per_gallon' ? c.fuelPerGallon : null,
-    }).eq('id', businessId);
-  }
-  // Fuel mode is either/or — save the toggle immediately (explicit value so we
-  // don't race React's state update).
-  async function setFuelMode(businessId: string, mode: 'percent' | 'per_gallon') {
-    updateCommission(businessId, { fuelMode: mode });
-    const c = commByBiz.get(businessId);
-    await supabase.from('businesses').update({
-      fuel_commission_mode: mode,
-      fuel_commission_per_gallon: mode === 'per_gallon' ? (c?.fuelPerGallon ?? null) : null,
-    }).eq('id', businessId);
-  }
-
-  function setCustTier(businessId: string, i: number, field: keyof CustTierRow, value: string) {
-    setCustTiers((m) => {
-      const rows = [...(m.get(businessId) || [])];
-      rows[i] = { ...rows[i], [field]: value };
-      return new Map(m).set(businessId, rows);
-    });
-  }
-  function addCustTier(businessId: string) {
-    setCustTiers((m) => new Map(m).set(businessId, [...(m.get(businessId) || []), { min: '', max: '', markup: '' }]));
-  }
-  function removeCustTier(businessId: string, i: number) {
-    setCustTiers((m) => new Map(m).set(businessId, (m.get(businessId) || []).filter((_, idx) => idx !== i)));
-  }
-
-  // Full-replace this business's tier rows.
-  async function saveCustTiers(businessId: string) {
-    const rows = custTiers.get(businessId) || [];
-    const parsed: { business_id: string; min_gallons: number; max_gallons: number | null; markup: number; sort_order: number }[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      const t = rows[i];
-      const min = Number(t.min);
-      const max = t.max.trim() === '' ? null : Number(t.max);
-      const markup = Number(t.markup);
-      if (!Number.isFinite(min) || min < 0 || (max !== null && (!Number.isFinite(max) || max < min)) || !Number.isFinite(markup)) {
-        setTierMsg((m) => new Map(m).set(businessId, `Row ${i + 1} is invalid.`));
-        return;
-      }
-      parsed.push({ business_id: businessId, min_gallons: min, max_gallons: max, markup, sort_order: i + 1 });
-    }
-    setTierSaving(businessId);
-    setTierMsg((m) => new Map(m).set(businessId, ''));
-    await supabase.from('customer_fuel_tiers').delete().eq('business_id', businessId);
-    if (parsed.length) {
-      const { error } = await supabase.from('customer_fuel_tiers').insert(parsed);
-      if (error) { setTierSaving(null); setTierMsg((m) => new Map(m).set(businessId, error.message)); return; }
-    }
-    setTierSaving(null);
-    setTierMsg((m) => new Map(m).set(businessId, 'Saved ✓'));
-    setTimeout(() => setTierMsg((m) => new Map(m).set(businessId, '')), 2000);
   }
 
   // Link a customer's profile to an existing business (unlocks their
@@ -1018,22 +819,6 @@ export default function AdminCustomersPage() {
   const toggleGroup = (bizId: string) =>
     setExpandedGroups((prev) => { const n = new Set(prev); n.has(bizId) ? n.delete(bizId) : n.add(bizId); return n; });
 
-  // Type-ahead source for the Log-visit form: distinct customer business
-  // names, so an admin logs a visit against a real account rather than a
-  // mistyped one.
-  const visitSuggestions = useMemo(() => {
-    const seen = new Set<string>();
-    const out: { name: string; city: string | null }[] = [];
-    for (const c of customers) {
-      if (!c.business_name) continue;
-      const k = c.business_name.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push({ name: c.business_name, city: null });
-    }
-    return out;
-  }, [customers]);
-
   // Every staff member can be a rep, so the dropdown lists them all (sorted by
   // name) — not just those already assigned — so admins/master_admins show up.
   const repSelectOptions = useMemo(
@@ -1074,9 +859,7 @@ export default function AdminCustomersPage() {
       <AdminSubNav
         tabs={[
           { href: '/admin/customers', label: 'Existing customers' },
-          { href: '/salesman/businesses', label: 'Customers visited' },
           { href: '/admin/forms', label: 'Forms' },
-          { href: '/admin/quotes', label: 'Quotes' },
         ]}
       />
       <div className="flex items-baseline justify-between gap-2 flex-wrap mb-3">
@@ -1098,27 +881,10 @@ export default function AdminCustomersPage() {
           >
             {syncBusy ? 'Syncing…' : '↻ Refresh balances from QB'}
           </button>
-          <button
-            onClick={() => setLogPrefill('')}
-            className="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium"
-          >
-            + Log visit
-          </button>
           </div>
         </div>
       </div>
 
-      {logPrefill !== null && me && (
-        <VisitForm
-          visit={null}
-          salesmanId={me.id}
-          salesmanName={me.name}
-          suggestions={visitSuggestions}
-          defaultBusinessName={logPrefill || undefined}
-          onClose={() => setLogPrefill(null)}
-          onSaved={() => { setLogPrefill(null); load(); }}
-        />
-      )}
       {(syncResult || syncBusy) && (
         <p className={`text-xs mb-3 ${syncResult.startsWith('Error') ? 'text-red-700' : 'text-gray-600'}`}>
           {syncBusy ? 'Pulling balances + open invoices from QuickBooks (5-15 seconds)…' : syncResult}
@@ -1258,14 +1024,6 @@ export default function AdminCustomersPage() {
               ...(appOrdersByCust.get(c.id) || []),
               ...(biz?.qb_recent_invoice_dates || []),
             ]);
-            const lastVisitIso = c.business_name ? lastVisitByName.get(normBizName(c.business_name)) : undefined;
-            const visitDays = lastVisitIso
-              ? Math.max(0, Math.floor((Date.now() - new Date(lastVisitIso).getTime()) / 86_400_000))
-              : null;
-            // Special fuel pricing summary shown inline on the card.
-            const spTiers = c.business_id ? (custTiers.get(c.business_id) || []) : [];
-            const showSpecialPricing =
-              !!c.business_id && (specialByBiz.get(c.business_id) ?? false) && spTiers.length > 0 && rackByProduct.size > 0;
             // Inactive = most recent order/invoice is over 9 months old (unless
             // an admin reactivated recently). Computed straight from the dates
             // we already loaded — independent of the nightly job — so the whole
@@ -1331,9 +1089,7 @@ export default function AdminCustomersPage() {
                     </div>
                   </div>
 
-                  {/* Right side: balance + oldest/last invoice in the upper
-                      portion of the card. The fuel box lives down in the
-                      bottom row so it sits at the card's bottom-right corner. */}
+                  {/* Right side: balance + oldest/last invoice. */}
                   <div className="shrink-0 text-right min-w-[110px]">
                     {/* Two order boxes: how often they order (left) and the
                         countdown to their next expected order (right). */}
@@ -1381,9 +1137,7 @@ export default function AdminCustomersPage() {
                   <span className="text-gray-400 text-sm ml-1">{isExpanded ? '▾' : '▸'}</span>
                   </div>
 
-                  {/* Bottom row: assigned rep on the left, last-visit badge
-                      centered, and the special fuel-pricing box anchored at
-                      the bottom-right corner of the card. */}
+                  {/* Bottom row: assigned rep. */}
                   <div className="flex items-end gap-2 mt-1.5">
                     <span className="text-[10px] flex-1 min-w-0 truncate text-left self-center">
                       {assignedRep
@@ -1392,48 +1146,7 @@ export default function AdminCustomersPage() {
                           ? <span className="text-gray-400">No rep assigned</span>
                           : null}
                     </span>
-                    <span className="shrink-0 self-center">
-                      {visitDays != null ? (
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${visitAgeClass(visitDays, visitThresholds)}`}>
-                          {visitDays === 0 ? 'Visited today' : `${visitDays} day${visitDays === 1 ? '' : 's'} ago`}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-gray-400">No visit logged</span>
-                      )}
-                    </span>
                     <span className="flex-1" />
-                    {/* Special fuel pricing — Clear + Dyed, bottom-right */}
-                    {showSpecialPricing && (
-                      <div className="shrink-0 border border-amber-300 bg-amber-50/50 rounded px-1.5 py-1">
-                        <div className="text-[8px] font-semibold uppercase tracking-wide text-amber-800 mb-0.5 text-center">
-                          Fuel $/gal
-                        </div>
-                        <div
-                          className="grid gap-x-3 gap-y-px text-[9px] leading-tight justify-center"
-                          style={{ gridTemplateColumns: 'repeat(2, auto)' }}
-                        >
-                          {CARD_FUEL_PRODUCTS.map((p) => (
-                            <div key={p} className="text-center text-gray-500 font-medium">{FUEL_SHORT[p]}</div>
-                          ))}
-                          {spTiers.map((t, i) => {
-                            const m = Number(t.markup);
-                            return (
-                              <Fragment key={i}>
-                                {CARD_FUEL_PRODUCTS.map((p) => {
-                                  const base = rackByProduct.get(p);
-                                  const ok = base != null && Number.isFinite(m);
-                                  return (
-                                    <div key={p} className="text-center tabular-nums text-gray-800">
-                                      {ok ? `$${(base + m).toFixed(2)}` : <span className="text-gray-300">—</span>}
-                                    </div>
-                                  );
-                                })}
-                              </Fragment>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </button>
                 {isExpanded && (
@@ -1599,44 +1312,6 @@ export default function AdminCustomersPage() {
                         </select>
                       </div>
                     )}
-                    {/* Salesman commission for this customer (the assigned rep
-                        earns it). % of gross profit on everything; fuel is
-                        either that % OR a flat $/gallon — not both. */}
-                    {biz && biz.assigned_sales_rep_id && (() => {
-                      const comm = commByBiz.get(biz.id) || { percent: null, fuelMode: 'percent' as const, fuelPerGallon: null };
-                      return (
-                        <div className="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                          <div className="text-xs font-semibold text-gray-700 mb-1.5">Salesman commission</div>
-                          <label className="flex items-center gap-1.5 text-xs text-gray-600 mb-2 flex-wrap">
-                            Profit commission
-                            <input type="number" step="0.01" min={0} value={comm.percent ?? ''}
-                              onChange={(e) => updateCommission(biz.id, { percent: e.target.value === '' ? null : Number(e.target.value) })}
-                              onBlur={() => saveCommission(biz.id)}
-                              className="w-16 px-2 py-1 border border-gray-300 rounded text-right" />
-                            % of gross profit (all non-fuel)
-                          </label>
-                          <div className="text-[11px] text-gray-500 mb-1">Fuel commission (either/or):</div>
-                          <div className="flex items-center gap-4 flex-wrap text-xs text-gray-700">
-                            <label className="flex items-center gap-1.5">
-                              <input type="radio" name={`fmode-${biz.id}`} checked={comm.fuelMode === 'percent'}
-                                onChange={() => setFuelMode(biz.id, 'percent')} />
-                              Same % of profit
-                            </label>
-                            <label className="flex items-center gap-1.5">
-                              <input type="radio" name={`fmode-${biz.id}`} checked={comm.fuelMode === 'per_gallon'}
-                                onChange={() => setFuelMode(biz.id, 'per_gallon')} />
-                              Per gallon $
-                              <input type="number" step="0.001" min={0} value={comm.fuelPerGallon ?? ''} disabled={comm.fuelMode !== 'per_gallon'}
-                                onChange={(e) => updateCommission(biz.id, { fuelPerGallon: e.target.value === '' ? null : Number(e.target.value) })}
-                                onBlur={() => saveCommission(biz.id)}
-                                className="w-16 px-2 py-1 border border-gray-300 rounded text-right disabled:bg-gray-100" />
-                              /gal
-                            </label>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
                     {biz && (
                       <BillingNotesBox businessId={biz.id} initial={biz.billing_notes} />
                     )}
@@ -1674,9 +1349,8 @@ export default function AdminCustomersPage() {
                         <CustomerInvoices businessId={c.business?.id ?? null} />
                       </div>
                     </div>
-                    {/* Fuel pricing: default volume tiers unless special
-                        pricing is turned on, in which case this customer gets
-                        their own editable tier table. Admins/master only. */}
+                    {/* Auto-invoice: staff-placed orders for this customer
+                        skip approval. Admins/master only. */}
                     {c.business_id && (
                       <div className="mb-3 bg-white border border-gray-200 rounded p-3" onClick={(e) => e.stopPropagation()}>
                         <label className="flex items-start gap-2 text-sm font-medium">
@@ -1696,127 +1370,6 @@ export default function AdminCustomersPage() {
                         </label>
                       </div>
                     )}
-                    {c.business_id && (() => {
-                      const bizId = c.business_id;
-                      const special = specialByBiz.get(bizId) ?? false;
-                      const rows = custTiers.get(bizId) || [];
-                      const msg = tierMsg.get(bizId) || '';
-                      return (
-                        <div className="mb-3 bg-white border border-gray-200 rounded p-3" onClick={(e) => e.stopPropagation()}>
-                          <label className="flex items-center gap-2 text-sm font-medium">
-                            <input
-                              type="checkbox"
-                              checked={special}
-                              onChange={(e) => toggleSpecialPricing(bizId, e.target.checked)}
-                              className="w-4 h-4"
-                            />
-                            Special fuel pricing
-                          </label>
-                          {!special ? (
-                            <p className="text-[11px] text-gray-500 mt-1.5">
-                              Using the default volume pricing (set on the Fuel tab).
-                            </p>
-                          ) : (
-                            <div className="mt-2">
-                              <div className="text-[11px] text-gray-500 mb-1.5">
-                                This customer’s own volume tiers ($/gal over rack). Leave “To” blank for “and up”.
-                              </div>
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="text-left text-gray-500">
-                                    <th className="py-1 pr-2 font-medium">From</th>
-                                    <th className="py-1 pr-2 font-medium">To</th>
-                                    <th className="py-1 pr-2 font-medium">$ over rack</th>
-                                    <th className="py-1"></th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map((t, i) => (
-                                    <tr key={i}>
-                                      <td className="py-0.5 pr-2">
-                                        <input type="number" min={0} value={t.min}
-                                          onChange={(e) => setCustTier(bizId, i, 'min', e.target.value)}
-                                          className="w-16 px-1.5 py-0.5 border border-gray-300 rounded tabular-nums" />
-                                      </td>
-                                      <td className="py-0.5 pr-2">
-                                        <input type="number" min={0} value={t.max} placeholder="∞"
-                                          onChange={(e) => setCustTier(bizId, i, 'max', e.target.value)}
-                                          className="w-16 px-1.5 py-0.5 border border-gray-300 rounded tabular-nums" />
-                                      </td>
-                                      <td className="py-0.5 pr-2">
-                                        <input type="number" step="0.01" min={0} value={t.markup}
-                                          onChange={(e) => setCustTier(bizId, i, 'markup', e.target.value)}
-                                          className="w-20 px-1.5 py-0.5 border border-gray-300 rounded tabular-nums" />
-                                      </td>
-                                      <td className="py-0.5 text-right">
-                                        <button onClick={() => removeCustTier(bizId, i)}
-                                          className="text-[11px] text-red-600 hover:text-red-800">Remove</button>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                              <div className="flex items-center gap-3 mt-2 flex-wrap">
-                                <button onClick={() => addCustTier(bizId)}
-                                  className="text-[11px] text-brand-700 hover:underline">+ Add tier</button>
-                                <button onClick={() => saveCustTiers(bizId)} disabled={tierSaving === bizId}
-                                  className="px-2.5 py-1 text-xs bg-brand-700 text-white rounded hover:bg-brand-900 disabled:opacity-50 font-medium">
-                                  {tierSaving === bizId ? 'Saving…' : 'Save tiers'}
-                                </button>
-                                {msg && <span className={`text-xs ${msg === 'Saved ✓' ? 'text-emerald-700' : 'text-red-600'}`}>{msg}</span>}
-                              </div>
-
-                              {/* Read-only readout of what this customer actually
-                                  pays: current rack + their markup, per product. */}
-                              {rackByProduct.size > 0 && rows.length > 0 && (
-                                <div className="mt-3 border-t border-gray-100 pt-2">
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                                    Their current prices ($/gal)
-                                  </div>
-                                  <div className="overflow-x-auto">
-                                    <table className="text-[11px] w-full">
-                                      <thead>
-                                        <tr className="text-gray-500">
-                                          <th className="text-left py-0.5 pr-3 font-medium">Volume</th>
-                                          {FUEL_PRODUCTS.map((p) => (
-                                            <th key={p} className="text-right py-0.5 px-2 font-medium whitespace-nowrap">{p}</th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {rows.map((t, i) => {
-                                          const markup = Number(t.markup);
-                                          const label = t.min === ''
-                                            ? '—'
-                                            : `${Number(t.min).toLocaleString()}${t.max.trim() === '' ? '+' : `–${Number(t.max).toLocaleString()}`} gal`;
-                                          return (
-                                            <tr key={i} className="border-t border-gray-50">
-                                              <td className="py-0.5 pr-3 whitespace-nowrap text-gray-600">{label}</td>
-                                              {FUEL_PRODUCTS.map((p) => {
-                                                const base = rackByProduct.get(p);
-                                                const ok = base != null && Number.isFinite(markup);
-                                                return (
-                                                  <td key={p} className="py-0.5 px-2 text-right tabular-nums">
-                                                    {ok ? `$${(base + markup).toFixed(3)}` : <span className="text-gray-300">—</span>}
-                                                  </td>
-                                                );
-                                              })}
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                  <div className="text-[10px] text-gray-400 mt-1">
-                                    Based on the latest rack prices. Updates here after you save tiers.
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
                     {/* File completeness — what's still missing, plus the
                         per-customer applicability toggles for the two
                         conditional forms. */}

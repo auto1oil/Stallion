@@ -11,7 +11,7 @@ import { listSalesTerms } from '@/lib/quickbooks';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STAFF = ['driver', 'mechanic', 'salesman', 'admin', 'master_admin'];
+const STAFF = ['driver', 'mechanic', 'office', 'contractor', 'admin', 'master_admin'];
 
 export async function GET() {
   const supabase = createClient();

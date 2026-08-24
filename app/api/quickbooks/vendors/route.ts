@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { searchVendors, createVendor } from '@/lib/quickbooks-bills';
+import { searchVendors, createVendor } from '@/lib/quickbooks-vendors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

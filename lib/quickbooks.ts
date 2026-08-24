@@ -17,7 +17,6 @@ import { randomUUID } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { GASOLINE_RE } from '@/lib/fuel-detect';
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
 const AUTHORIZE_URL = 'https://appcenter.intuit.com/connect/oauth2';
@@ -624,86 +623,6 @@ export async function findSalesIncomeAccount(): Promise<{ Id: string; Name: stri
   return res.QueryResponse.Account?.[0] ?? null;
 }
 
-// ── Credit-card charges (card-charge reconciliation) ─────────────────────────
-// The company's credit-card accounts in the chart of accounts.
-export async function listCreditCardAccounts(
-  db?: SupabaseClient,
-): Promise<Array<{ id: string; name: string }>> {
-  // NB: the Account.AccountType enum value is "Credit Card" (with a space).
-  // (PaymentType on Purchase is the no-space "CreditCard" — different enum.)
-  const q = `select Id, Name from Account where AccountType = 'Credit Card' and Active = true order by Name maxresults 500`;
-  const res = await qbFetch<{ QueryResponse: { Account?: Array<{ Id: string; Name: string }> } }>(
-    `/query?query=${encodeURIComponent(q)}`, undefined, db,
-  );
-  return (res.QueryResponse.Account || []).map((a) => ({ id: a.Id, name: a.Name }));
-}
-
-export type QBPurchase = {
-  id: string;
-  date: string | null;        // TxnDate (yyyy-mm-dd)
-  amount: number | null;      // TotalAmt
-  merchant: string | null;    // EntityRef (payee/vendor) name
-  accountId: string | null;   // AccountRef.value — which credit-card account
-  accountName: string | null; // AccountRef.name (may embed the card's last-4)
-};
-
-// Pull credit-card CHARGES (QBO Purchase, PaymentType='CreditCard') on/after
-// `since`, paginated. QB does NOT carry the physical card's last-4 or cardholder
-// — only the account (AccountRef) and payee (EntityRef) — so the caller derives
-// attribution from the account name or a matched receipt. Optionally restrict to
-// a set of account ids (filtered client-side; QBO can't filter Purchase by
-// AccountRef in the query).
-export async function fetchCreditCardPurchases(
-  since: string,
-  accountIds?: string[],
-  db?: SupabaseClient,
-  expenseAccountName?: string,
-): Promise<QBPurchase[]> {
-  // Only charges BOOKED TO a given expense account (e.g. "APP Receipts Pending",
-  // the holding account you auto-add card charges into). Matched case-insensitive
-  // against each line's category. When set, it is the SOLE filter: we don't also
-  // require PaymentType='CreditCard' (auto-added expenses aren't always tagged
-  // that way) or restrict to a card-account list — the account defines the set,
-  // and the card is only read for its last-4. Empty = every credit-card charge.
-  const expFilter = (expenseAccountName || '').trim().toLowerCase();
-  const wanted = !expFilter && accountIds && accountIds.length ? new Set(accountIds) : null;
-  const out: QBPurchase[] = [];
-  let start = 1;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const where = expFilter ? `TxnDate >= '${since}'` : `PaymentType = 'CreditCard' and TxnDate >= '${since}'`;
-    const q = `select * from Purchase where ${where} startposition ${start} maxresults 100`;
-    const res = await qbFetch<{ QueryResponse?: { Purchase?: Array<Record<string, unknown>> } }>(
-      `/query?query=${encodeURIComponent(q)}`, undefined, db,
-    );
-    const batch = res.QueryResponse?.Purchase || [];
-    for (const p of batch) {
-      const acct = p.AccountRef as { value?: string; name?: string } | undefined;
-      const entity = p.EntityRef as { name?: string } | undefined;
-      if (wanted && acct?.value && !wanted.has(acct.value)) continue;
-      if (expFilter) {
-        const lines = (p.Line as Array<Record<string, unknown>> | undefined) || [];
-        const hit = lines.some((ln) => {
-          const d = ln.AccountBasedExpenseLineDetail as { AccountRef?: { name?: string } } | undefined;
-          return (d?.AccountRef?.name || '').toLowerCase().includes(expFilter);
-        });
-        if (!hit) continue;
-      }
-      out.push({
-        id: String(p.Id),
-        date: p.TxnDate ? String(p.TxnDate).slice(0, 10) : null,
-        amount: p.TotalAmt != null ? Number(p.TotalAmt) : null,
-        merchant: entity?.name ?? null,   // uncategorized bank-feed charges have no payee; leave blank
-        accountId: acct?.value ?? null,
-        accountName: acct?.name ?? null,
-      });
-    }
-    if (batch.length < 100) break;
-    start += 100;
-  }
-  return out;
-}
-
 // ── Invoice ──────────────────────────────────────────────────────────────────
 export type InvoiceLineInput = {
   qbItemId: string;
@@ -711,7 +630,7 @@ export type InvoiceLineInput = {
   quantity: number;
   unitPrice?: number;          // override default item price if set
   description?: string;
-  // Sub-cent per-gallon fuel taxes: omit UnitPrice and send Amount+Qty so QB
+  // Sub-cent per-unit tax/fee lines: omit UnitPrice and send Amount+Qty so QB
   // derives the rate itself. Sending all three lets QB's rounding of
   // UnitPrice×Qty disagree with our Amount and reject with error 6070.
   taxLine?: boolean;
@@ -800,29 +719,6 @@ async function getSalesmanCustomFieldId(): Promise<string | null> {
   return _salesmanFieldId;
 }
 
-// Fuel product line? (Clear/Dyed diesel or gasoline — a tax line is not fuel.)
-function isFuelItemName(name: string): boolean {
-  const s = (name || '').toLowerCase();
-  const i = s.lastIndexOf(':');
-  const b = (i >= 0 ? s.slice(i + 1) : s).trim();
-  if (/\b(tax|excise|lust|hazard|envir|cleanup|fee|spill)\b/.test(b)) return false;
-  if (/dyed/.test(b) && /(dsl|diesel|fuel|gal)/.test(b)) return true;
-  if (/clear/.test(b) && /(dsl|diesel|fuel|gal)/.test(b)) return true;
-  return GASOLINE_RE.test(b);
-}
-
-// Clear diesel and gasoline carry fuel excise tax, not sales tax, so they're
-// sales-tax-exempt even on a taxed order. Dyed (off-road) diesel and every other
-// product are sales-taxable. (Fuel excise/fee lines are handled separately.)
-function isSalesTaxExemptFuel(name: string): boolean {
-  const s = (name || '').toLowerCase();
-  const i = s.lastIndexOf(':');
-  const b = (i >= 0 ? s.slice(i + 1) : s).trim();
-  if (/dyed/.test(b)) return false;
-  if (/clear/.test(b) && /(dsl|diesel|fuel|gal)/.test(b)) return true;
-  return GASOLINE_RE.test(b);
-}
-
 // QuickBooks rejects a line (error 6070) unless Amount === round(UnitPrice × Qty).
 // JS `(rate*qty).toFixed(2)` truncates at half-cent float boundaries — e.g.
 // 0.385 × 1863 = 717.255 → toFixed gives 717.25 but QB rounds to 717.26 — so the
@@ -844,18 +740,17 @@ export async function createInvoice(opts: {
   poNumber?: string;
   /** Salesman name → written to the salesman sales-form custom field. */
   salesmanName?: string;
-  /** Salesman's QuickBooks Class → set per line (fuel lines use '<class> FUEL'). */
+  /** Salesman's QuickBooks Class → set on every line. */
   salesmanClass?: string;
   /** Sales tax: true = charge tax on product lines, false/undefined = no tax
-   *  (every line marked NON). Fuel excise/fee tax lines are never sales-taxed. */
+   *  (every line marked NON). Tax/fee lines are never sales-taxed. */
   taxable?: boolean;
 }): Promise<QBInvoice> {
   const docNumber = opts.docNumber ?? (await getNextInvoiceDocNumber());
 
-  // Resolve the salesman's Class ids (non-fuel = their class, fuel = '<class>
-  // FUEL'). Used to tag each line so QuickBooks reports P&L by salesman.
+  // Resolve the rep's Class id, used to tag each line so QuickBooks reports
+  // P&L by rep.
   let baseClassId: string | null = null;
-  let fuelClassId: string | null = null;
   if (opts.salesmanClass) {
     try {
       const byName = new Map<string, string>();
@@ -864,7 +759,6 @@ export async function createInvoice(opts: {
         if (c.FullyQualifiedName) byName.set(c.FullyQualifiedName.toLowerCase(), c.Id);
       }
       baseClassId = byName.get(opts.salesmanClass.toLowerCase()) || null;
-      fuelClassId = byName.get(`${opts.salesmanClass} fuel`.toLowerCase()) || baseClassId;
     } catch { /* class tagging is best-effort */ }
   }
 
@@ -882,7 +776,7 @@ export async function createInvoice(opts: {
     CustomerRef: { value: opts.qbCustomerId },
     Line: opts.lines.map((l) => {
       const unitPrice = typeof l.unitPrice === 'number' ? l.unitPrice : 0;
-      // Round the fuel-tax rate to 5 decimals (QuickBooks' max for a unit
+      // Round a tax/fee rate to 5 decimals (QuickBooks' max for a unit
       // price) and derive the Amount from that same value, so QB's
       // "Amount = Qty × UnitPrice" check can't fail (the old error 6070) — while
       // still sending the rate so it prints in the Rate column.
@@ -896,19 +790,12 @@ export async function createInvoice(opts: {
       };
       // Send the unit price on every line (incl. tax lines) so the rate prints.
       detail.UnitPrice = rate;
-      // Salesman class per line: fuel products + their taxes → '<class> FUEL',
-      // everything else → the salesman's base class.
-      if (baseClassId) {
-        const fuel = l.taxLine || isFuelItemName(l.qbItemName);
-        detail.ClassRef = { value: (fuel ? fuelClassId : baseClassId) || baseClassId };
-      }
+      // Rep class per line, so QuickBooks can report P&L by rep.
+      if (baseClassId) detail.ClassRef = { value: baseClassId };
       // Sales tax: charge it on a line only when the order is taxable AND the
-      // line isn't sales-tax-exempt — clear diesel, gasoline, and the fuel
-      // excise/fee lines stay NON (they carry fuel tax instead). Dyed diesel and
-      // every other product are taxed. Default (and exempt customers) → NON.
+      // line isn't a tax/fee line. Default (and exempt customers) → NON.
       if (opts.taxable !== undefined) {
-        const exempt = l.taxLine || isSalesTaxExemptFuel(l.qbItemName);
-        detail.TaxCodeRef = { value: opts.taxable && !exempt ? 'TAX' : 'NON' };
+        detail.TaxCodeRef = { value: opts.taxable && !l.taxLine ? 'TAX' : 'NON' };
       }
       return {
         DetailType: 'SalesItemLineDetail',
@@ -920,8 +807,7 @@ export async function createInvoice(opts: {
   };
   if (docNumber) body.DocNumber = docNumber;
   if (opts.customerMemo) body.CustomerMemo = { value: opts.customerMemo };
-  // Print the payment terms on the invoice. Fuel orders force Net 10; other
-  // orders use the customer's saved terms (see resolveInvoiceTermId).
+  // Print the payment terms on the invoice (see resolveInvoiceTermId).
   if (opts.salesTermId) body.SalesTermRef = { value: opts.salesTermId };
 
   // Sales-form custom fields: PO number and the salesman name. Each writes to
@@ -1284,7 +1170,7 @@ export type DesiredLine = {
   qbItemName: string;
   qty: number;
   unitPrice: number;
-  taxLine?: boolean;      // sub-cent fuel tax: send Amount+Qty, let QB derive rate
+  taxLine?: boolean;      // sub-cent tax/fee: send Amount+Qty, let QB derive rate
 };
 export async function rebuildInvoiceLines(
   inv: QBFullInvoice,
@@ -1297,7 +1183,7 @@ export async function rebuildInvoiceLines(
   // Keep original non-sales lines (tax, discounts, subtotals) untouched.
   const keptNonSales = (inv.Line || []).filter((l) => l.DetailType !== 'SalesItemLineDetail');
   const salesLines = desired.map((d) => {
-    // Round the fuel-tax rate to 5 decimals (QB's max) and derive the Amount
+    // Round a tax/fee rate to 5 decimals (QB's max) and derive the Amount
     // from it, so the rate prints AND Amount = Qty × UnitPrice holds (no 6070).
     const rate = d.taxLine ? Math.round(d.unitPrice * 1e5) / 1e5 : d.unitPrice;
     const amount = qbLineAmount(rate, d.qty);
@@ -1307,10 +1193,10 @@ export async function rebuildInvoiceLines(
     };
     // Send the unit price on every line (incl. tax lines) so the rate prints.
     detail!.UnitPrice = rate;
-    // Never sales-tax clear diesel, gasoline, or fuel excise/fee lines, even on
-    // an edit (they carry fuel tax instead). Otherwise, when a taxable flag is
-    // given, mark the line TAX/NON so an adjuster can add (or remove) sales tax.
-    if (d.taxLine || isSalesTaxExemptFuel(d.qbItemName)) {
+    // Never sales-tax a tax/fee line, even on an edit. Otherwise, when a
+    // taxable flag is given, mark the line TAX/NON so an adjuster can add (or
+    // remove) sales tax.
+    if (d.taxLine) {
       (detail as Record<string, unknown>).TaxCodeRef = { value: 'NON' };
     } else if (taxable !== undefined) {
       (detail as Record<string, unknown>).TaxCodeRef = { value: taxable ? 'TAX' : 'NON' };
@@ -1333,39 +1219,6 @@ export async function rebuildInvoiceLines(
   };
   return postInvoiceUpdate(body);
 }
-
-// ── Fuel tax mapping ────────────────────────────────────────────────────────
-// Each fuel product, when invoiced, also bills a fixed set of tax line items
-// at the same quantity. Each customer's specific per-tax rates live on the
-// QB item itself (we let QB compute Amount from item UnitPrice × Qty), so
-// we just need to find the items by name and append them as extra invoice
-// lines. Keep in sync with the user's QB catalog.
-export const FUEL_TAX_ITEM_NAMES: Record<string, string[]> = {
-  'Clear Fuel': [
-    'Fed Excise Tax - Clear DSL T1',
-    'Fed Hazard Subst Fee Clear DSL T2',
-    'Fed Env. Oil Spill Clear DSL T3',
-    'UT Envir/Cleanup Fee Clear DSL T4',
-    'UT St. Excise Tax - Clear DSL T5',
-  ],
-  'Dyed Fuel': [
-    'Fed Lust Tax Dyed DSL 1',
-    'Fed Hazard Subst Fee Dyed DSL 2',
-    'UT Envir/cleanup Fee Dyed DSL 3',
-  ],
-  '85-Octane': [
-    'Fed Excise Tax - GAS 1',
-    'Fed Hazard Subst Fee GAS 2',
-    'UT Envir/Cleanup Fee GAS 3',
-    'Ut. State Excise Tax - Gas 4',
-  ],
-  '91-Octane': [
-    'Fed Excise Tax - GAS 1',
-    'Fed Hazard Subst Fee GAS 2',
-    'UT Envir/Cleanup Fee GAS 3',
-    'Ut. State Excise Tax - Gas 4',
-  ],
-};
 
 // Look up QB items by their exact Name field. Returns a map keyed by name.
 // Items that aren't found are simply omitted (with a console warn) so the
@@ -1428,149 +1281,6 @@ export async function listClasses(): Promise<QBClass[]> {
   return all;
 }
 
-// ── Bulk push prices to QuickBooks ──────────────────────────────────────────
-// Writes our cost (→ PurchaseCost) and retail (→ UnitPrice) up to QuickBooks
-// for many items at once, so a 300-item repricing is one action instead of 300
-// manual edits. Items are matched to QB by exact Name. We read each item's
-// current SyncToken (required for any update) and only push values that
-// actually changed, then send sparse updates through the QB Batch API (max 30
-// per request). Unmatched or unchanged items are reported, not failed.
-export type ItemPriceUpdate = { qbName: string; retail?: number | null; cost?: number | null };
-
-// Tax/fee items (fuel excise / hazard / cleanup / LUST / oil-spill, etc.) carry
-// their rate in QuickBooks and must NEVER be repriced by the app — they show up
-// in the inventory list with a $0 price, and pushing that would zero their
-// QuickBooks rate. Recognized by the fuel-tax names or tax/fee keywords.
-const _allFuelTaxNames = new Set(Object.values(FUEL_TAX_ITEM_NAMES).flat().map((n) => n.toLowerCase()));
-function isTaxOrFeeItemName(name: string): boolean {
-  const s = (name || '').toLowerCase();
-  const i = s.lastIndexOf(':');
-  const b = (i >= 0 ? s.slice(i + 1) : s).trim();
-  if (_allFuelTaxNames.has(b)) return true;
-  return /\b(tax|excise|lust|hazard|envir|cleanup|fee|spill)\b/.test(b);
-}
-
-export async function pushItemPrices(updates: ItemPriceUpdate[]): Promise<{
-  updated: number;
-  skipped: { qbName: string; reason: string }[];
-  errors: { qbName: string; error: string }[];
-}> {
-  const items = await listAllItems();
-  const byName = new Map<string, QBItem>();
-  for (const it of items) {
-    // The app stores qb_name as the fully-qualified "Parent:Child" name for
-    // sub-items, so index by both forms or sub-items never match (and the push
-    // silently skips them).
-    byName.set(it.Name, it);
-    if (it.FullyQualifiedName) byName.set(it.FullyQualifiedName, it);
-  }
-
-  const skipped: { qbName: string; reason: string }[] = [];
-  const errors: { qbName: string; error: string }[] = [];
-
-  type Op = { bId: string; qbName: string; Item: Record<string, unknown> };
-  const ops: Op[] = [];
-  let n = 0;
-  for (const u of updates) {
-    if (isTaxOrFeeItemName(u.qbName)) { skipped.push({ qbName: u.qbName, reason: 'tax/fee item — never repriced' }); continue; }
-    const qb = byName.get(u.qbName);
-    if (!qb) { skipped.push({ qbName: u.qbName, reason: 'no matching QuickBooks item' }); continue; }
-    const setRetail = u.retail != null && Number(u.retail) !== (qb.UnitPrice ?? null);
-    const setCost = u.cost != null && Number(u.cost) !== (qb.PurchaseCost ?? null);
-    if (!setRetail && !setCost) { skipped.push({ qbName: u.qbName, reason: 'unchanged' }); continue; }
-    const Item: Record<string, unknown> = { Id: qb.Id, SyncToken: qb.SyncToken, sparse: true };
-    if (setRetail) Item.UnitPrice = Number(u.retail);
-    if (setCost) Item.PurchaseCost = Number(u.cost);
-    ops.push({ bId: `b${n++}`, qbName: u.qbName, Item });
-  }
-
-  let updated = 0;
-  for (let i = 0; i < ops.length; i += 30) {
-    const chunk = ops.slice(i, i + 30);
-    const res = await qbFetch<{
-      BatchItemResponse?: { bId: string; Item?: QBItem; Fault?: { Error?: { Message?: string; Detail?: string }[] } }[];
-    }>('/batch', {
-      method: 'POST',
-      body: JSON.stringify({
-        BatchItemRequest: chunk.map((o) => ({ bId: o.bId, operation: 'update', Item: o.Item })),
-      }),
-    });
-    const byBid = new Map((res.BatchItemResponse || []).map((r) => [r.bId, r]));
-    for (const o of chunk) {
-      const r = byBid.get(o.bId);
-      if (r?.Item) updated++;
-      else {
-        const f = r?.Fault?.Error?.[0];
-        errors.push({ qbName: o.qbName, error: f?.Detail || f?.Message || 'unknown batch error' });
-      }
-    }
-  }
-  return { updated, skipped, errors };
-}
-
-// Push new quantity-on-hand to QuickBooks for inventory items. Sparse-updates
-// each matched Item with the new QtyOnHand (QB records the adjustment). Items
-// that aren't inventory-tracked, aren't found, or are unchanged are skipped;
-// any QB rejection is reported per item (the caller still updates app levels).
-export type ItemQtyUpdate = { qbName: string; qty: number };
-
-export async function pushItemQuantities(updates: ItemQtyUpdate[]): Promise<{
-  updated: number;
-  skipped: { qbName: string; reason: string }[];
-  errors: { qbName: string; error: string }[];
-}> {
-  const items = await listAllItems();
-  const byName = new Map<string, QBItem>();
-  for (const it of items) {
-    // The app stores qb_name as the fully-qualified "Parent:Child" name for
-    // sub-items, so index by both forms or sub-items never match (and the push
-    // silently skips them).
-    byName.set(it.Name, it);
-    if (it.FullyQualifiedName) byName.set(it.FullyQualifiedName, it);
-  }
-
-  const skipped: { qbName: string; reason: string }[] = [];
-  const errors: { qbName: string; error: string }[] = [];
-
-  type Op = { bId: string; qbName: string; Item: Record<string, unknown> };
-  const ops: Op[] = [];
-  let n = 0;
-  for (const u of updates) {
-    const qb = byName.get(u.qbName);
-    if (!qb) { skipped.push({ qbName: u.qbName, reason: 'no matching QuickBooks item' }); continue; }
-    if (qb.TrackQtyOnHand === false) { skipped.push({ qbName: u.qbName, reason: 'not an inventory item in QB' }); continue; }
-    if (qb.QtyOnHand != null && Number(qb.QtyOnHand) === Number(u.qty)) { skipped.push({ qbName: u.qbName, reason: 'unchanged' }); continue; }
-    ops.push({
-      bId: `b${n++}`,
-      qbName: u.qbName,
-      // Sparse update with the new on-hand; QB dates the adjustment today.
-      Item: { Id: qb.Id, SyncToken: qb.SyncToken, sparse: true, QtyOnHand: Number(u.qty), InvStartDate: new Date().toISOString().slice(0, 10) },
-    });
-  }
-
-  let updated = 0;
-  for (let i = 0; i < ops.length; i += 30) {
-    const chunk = ops.slice(i, i + 30);
-    const res = await qbFetch<{
-      BatchItemResponse?: { bId: string; Item?: QBItem; Fault?: { Error?: { Message?: string; Detail?: string }[] } }[];
-    }>('/batch', {
-      method: 'POST',
-      body: JSON.stringify({
-        BatchItemRequest: chunk.map((o) => ({ bId: o.bId, operation: 'update', Item: o.Item })),
-      }),
-    });
-    const byBid = new Map((res.BatchItemResponse || []).map((r) => [r.bId, r]));
-    for (const o of chunk) {
-      const r = byBid.get(o.bId);
-      if (r?.Item) updated++;
-      else {
-        const f = r?.Fault?.Error?.[0];
-        errors.push({ qbName: o.qbName, error: f?.Detail || f?.Message || 'unknown batch error' });
-      }
-    }
-  }
-  return { updated, skipped, errors };
-}
 
 // ── For surfaced UI: get the customer's negotiated price for an item ─────────
 // QB stores price overrides via "PriceLevel" objects. We don't fully model

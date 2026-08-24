@@ -10,7 +10,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 
-const ROLES = ['customer', 'driver', 'salesman', 'admin', 'master_admin', 'office', 'mechanic', 'labor'] as const;
+const ROLES = ['customer', 'driver', 'contractor', 'funder', 'admin', 'master_admin', 'office', 'mechanic', 'labor'] as const;
 type AppRole = (typeof ROLES)[number];
 
 export async function POST(req: Request) {

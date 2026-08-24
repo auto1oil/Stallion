@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   await admin.from('support_sessions').update({ last_at: new Date().toISOString(), status: 'open' }).eq('id', body.session_id);
 
   // Notify all staff (admins + master admins + salesmen).
-  const { data: staff } = await admin.from('profiles').select('id').in('role', ['admin', 'master_admin', 'salesman']);
+  const { data: staff } = await admin.from('profiles').select('id').in('role', ['admin', 'master_admin', 'office']);
   const notes = ((staff as { id: string }[]) || []).map((s) => ({
     recipient_id: s.id,
     kind: 'support_chat',

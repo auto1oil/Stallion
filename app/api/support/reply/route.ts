@@ -1,4 +1,4 @@
-// Staff side of support chat (admin/master_admin/salesman).
+// Staff side of support chat (admin/master_admin/office).
 //
 // POST { session_id, body }     → posts a staff reply (shows the staff name to
 //                                 the guest), bumps the session.
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
   const { data: me } = await supabase.from('profiles').select('role, full_name, email').eq('id', user.id).single();
-  if (!me || !['admin', 'master_admin', 'salesman'].includes(me.role)) {
+  if (!me || !['admin', 'master_admin', 'office'].includes(me.role)) {
     return NextResponse.json({ ok: false, error: 'staff only' }, { status: 403 });
   }
 

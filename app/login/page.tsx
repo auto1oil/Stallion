@@ -32,7 +32,7 @@ export default function LoginPage() {
     setResetMsg('Check your email for a link to reset your password. If it doesn’t arrive, ask an admin to reset it for you.');
   }
 
-  // Let a salesman share the app with a customer — native share sheet on
+  // Let staff share the app with a customer — native share sheet on
   // phones, clipboard fallback on desktop. Shares the customer signup link.
   async function shareApp() {
     const url = typeof window !== 'undefined'

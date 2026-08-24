@@ -41,9 +41,7 @@ export default function AdminFormsPage() {
       <AdminSubNav
         tabs={[
           { href: '/admin/customers', label: 'Existing customers' },
-          { href: '/salesman/businesses', label: 'Customers visited' },
           { href: '/admin/forms', label: 'Forms' },
-          { href: '/admin/quotes', label: 'Quotes' },
         ]}
       />
       <h1 className="text-2xl font-semibold mb-1">Forms</h1>

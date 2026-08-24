@@ -24,7 +24,7 @@ type Person = { id: string; full_name: string | null; email: string | null; avat
 
 const POLL_MS = 8_000;
 const isAdmin = (role: string) => role === 'admin' || role === 'master_admin';
-const isStaff = (role: string) => ['admin', 'master_admin', 'salesman', 'driver', 'mechanic'].includes(role);
+const isStaff = (role: string) => ['admin', 'master_admin', 'office', 'driver', 'mechanic', 'contractor', 'funder'].includes(role);
 
 export default function MessagesView({ me }: { me: Me }) {
   const supabase = createClient();
@@ -476,7 +476,7 @@ function personLabel(p: Person): string {
 
 function roleRank(role: string | null): number {
   if (role === 'admin' || role === 'master_admin') return 0;
-  if (role === 'driver' || role === 'mechanic' || role === 'salesman') return 1;
+  if (['driver', 'mechanic', 'office', 'contractor', 'funder'].includes(role)) return 1;
   return 2; // customers (and anything else) last
 }
 

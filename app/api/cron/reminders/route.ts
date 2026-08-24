@@ -46,81 +46,6 @@ function nextOccurrence(remindOn: string, repeat: Reminder['repeat'], today: str
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Normalize a business name to match the salesman_visits log.
-function normBizName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/[''`]s\b/g, '')
-    .replace(/\b(inc|llc|ltd|co|corp|corporation|company)\b\.?/g, '')
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Visit reminders: nudge the assigned rep once they're overdue, and alert
-// admins about long-unvisited customers. Reads cadence from app_settings.
-async function runVisitReminders(db: ReturnType<typeof createAdminClient>) {
-  const { data: rows } = await db
-    .from('app_settings')
-    .select('key, value')
-    .in('key', ['visit_reminder_start', 'visit_reminder_interval', 'visit_admin_alert']);
-  const s = Object.fromEntries(((rows as { key: string; value: string }[]) || []).map((r) => [r.key, Number(r.value)]));
-  const start = s.visit_reminder_start || 45;
-  const interval = Math.max(1, s.visit_reminder_interval || 5);
-  const adminAlert = s.visit_admin_alert || 90;
-
-  const { data: bizs } = await db
-    .from('businesses')
-    .select('id, name, assigned_sales_rep_id, created_at')
-    .not('assigned_sales_rep_id', 'is', null);
-  const { data: visits } = await db.from('salesman_visits').select('business_name, visit_at');
-
-  const lastByName = new Map<string, string>();
-  for (const v of (visits as { business_name: string | null; visit_at: string }[]) || []) {
-    const k = normBizName(v.business_name || '');
-    if (!k) continue;
-    const cur = lastByName.get(k);
-    if (!cur || v.visit_at > cur) lastByName.set(k, v.visit_at);
-  }
-
-  const now = Date.now();
-  const overdue: string[] = [];
-  let repNudges = 0;
-  for (const b of (bizs as { id: string; name: string; assigned_sales_rep_id: string; created_at: string | null }[]) || []) {
-    const ref = lastByName.get(normBizName(b.name || '')) || b.created_at;
-    if (!ref) continue;
-    const days = Math.floor((now - new Date(ref).getTime()) / 86_400_000);
-    if (days >= start && (days - start) % interval === 0) {
-      await db.from('notifications').insert({
-        recipient_id: b.assigned_sales_rep_id,
-        kind: 'visit_reminder',
-        title: `Time to visit ${b.name}`,
-        body: `It's been ${days} days since the last logged visit.`,
-        link: '/salesman/businesses',
-      });
-      repNudges++;
-    }
-    if (days >= adminAlert && (days - adminAlert) % interval === 0) {
-      overdue.push(b.name);
-    }
-  }
-
-  if (overdue.length > 0) {
-    const { data: admins } = await db.from('profiles').select('id').in('role', ['admin', 'master_admin']);
-    const names = overdue.slice(0, 10).join(', ') + (overdue.length > 10 ? '…' : '');
-    for (const a of (admins as { id: string }[]) || []) {
-      await db.from('notifications').insert({
-        recipient_id: a.id,
-        kind: 'visit_admin_alert',
-        title: `${overdue.length} customer${overdue.length === 1 ? '' : 's'} not visited in ${adminAlert}+ days`,
-        body: names,
-        link: '/salesman/businesses',
-      });
-    }
-  }
-  return { repNudges, adminAlerts: overdue.length };
-}
-
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
@@ -163,7 +88,5 @@ export async function GET(req: Request) {
     fired++;
   }
 
-  const visits = await runVisitReminders(db);
-
-  return NextResponse.json({ ok: true, fired, ...visits });
+  return NextResponse.json({ ok: true, fired });
 }

@@ -47,7 +47,7 @@ export default function CheckoutPage() {
       supabase
         .from('profiles')
         .select('id, full_name, email')
-        .in('role', ['admin', 'master_admin', 'salesman'])
+        .in('role', ['admin', 'master_admin', 'office'])
         .order('full_name'),
       supabase
         .from('customer_documents')

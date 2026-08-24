@@ -45,7 +45,7 @@ function cadenceClass(countdownDays: number): string {
   return 'bg-green-50 text-green-700 border-green-200';
 }
 
-// orderPath: when set (salesman side), the customer name links to the place-
+// orderPath: when set, the customer name links to the place-
 // order screen pre-selected for that customer, so reps can open a customer and
 // put an order in. Omitted (driver side) leaves the name as plain text.
 export default function StaffCustomerList({ meId, canToggleMine, orderPath }: { meId: string; canToggleMine: boolean; orderPath?: string }) {

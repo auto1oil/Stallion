@@ -24,10 +24,7 @@ import {
   getItemUnitPrice,
   getCustomerHistoryItems,
   fetchInvoicePdf,
-  findItemsByNames,
-  getNet10TermId,
   getCustomerSalesTermId,
-  FUEL_TAX_ITEM_NAMES,
   type HistoryItem,
 } from '@/lib/quickbooks';
 
@@ -306,40 +303,6 @@ export async function invoiceCustomerOrder(
     if (sk && !itemBySku.has(sk)) itemBySku.set(sk, qi);
   }
 
-  // The QuickBooks item each order product/variant is MATCHED to on the
-  // Inventory page (inventory_items.match_*). This is the admin's explicit,
-  // authoritative link to the right item — keyed product_id|weight|size →
-  // { qbName, sku }. Used first (below) so invoicing resolves to that item's
-  // ACTIVE catalog entry even when the order-line name and the QB item name
-  // differ (e.g. "Window Wash" ↔ "WINDSHIELD WASH FLUID READY TO USE"), instead
-  // of a stale mapping that points at a deleted/duplicate copy.
-  const matchByVariant = new Map<string, { qbName: string; sku: string | null }>();
-  {
-    const { data: invMatches } = await supabase
-      .from('inventory_items')
-      .select('match_product_id, match_weight, match_container_size, qb_name, description, sku')
-      .not('match_product_id', 'is', null)
-      .eq('active', true);
-    for (const r of (invMatches as Array<{ match_product_id: string; match_weight: string | null; match_container_size: string | null; qb_name: string | null; description: string | null; sku: string | null }>) || []) {
-      const key = `${r.match_product_id}|${r.match_weight || ''}|${r.match_container_size || ''}`;
-      const qbName = ((r.qb_name || r.description || '') as string).trim();
-      if (qbName && !matchByVariant.has(key)) matchByVariant.set(key, { qbName, sku: r.sku || null });
-    }
-  }
-
-  // Pre-fetch the fuel tax items so each fuel product's excise/fee lines can be
-  // emitted directly below that product's line (clear-fuel taxes under clear
-  // fuel, gasoline taxes under gasoline) instead of bunched at the bottom.
-  const fuelLinesInOrder = (items as any[]).filter((it) => FUEL_TAX_ITEM_NAMES[it.product_name]);
-  const taxLinesAdded: string[] = [];
-  let taxItemsByName: Record<string, any> = {};
-  if (fuelLinesInOrder.length > 0) {
-    const allTaxNames = new Set<string>();
-    for (const it of fuelLinesInOrder) for (const n of FUEL_TAX_ITEM_NAMES[it.product_name] || []) allTaxNames.add(n);
-    try { taxItemsByName = await findItemsByNames(Array.from(allTaxNames)); }
-    catch (e: any) { console.warn('Tax item lookup failed:', e); }
-  }
-
   try {
     for (const it of items) {
       const weight = it.weight || '';
@@ -365,8 +328,8 @@ export async function invoiceCustomerOrder(
       //    then SKU). Highest priority — it sidesteps stale mappings that point
       //    at deleted/duplicate items, the cause of "activate this item" and
       //    "transaction date prior to start date" errors on items that look fine.
-      const matched = matchByVariant.get(`${it.product_id || ''}|${weight}|${containerSize}`);
-      if (matched && !FUEL_TAX_ITEM_NAMES[it.product_name]) {
+      const matched: { qbName: string; sku: string | null } | undefined = undefined;
+      if (matched) {
         const activeItem =
           itemByWords.get(wordKey(matched.qbName)) ||
           (matched.sku ? itemBySku.get(matched.sku.trim().toLowerCase()) : null) ||
@@ -505,29 +468,14 @@ export async function invoiceCustomerOrder(
         matchedVia,
         unitPrice,
       });
-
-      // Emit this fuel product's excise/fee taxes right below its line.
-      for (const taxName of FUEL_TAX_ITEM_NAMES[it.product_name] || []) {
-        const taxItem = taxItemsByName[taxName];
-        if (!taxItem) { console.warn(`Fuel tax item "${taxName}" not found in QB — skipping.`); continue; }
-        lines.push({
-          qbItemId: taxItem.Id,
-          qbItemName: taxItem.Name,
-          quantity: it.quantity,
-          unitPrice: typeof taxItem.UnitPrice === 'number' ? taxItem.UnitPrice : 0,
-          taxLine: true, // sub-cent rate — let QB derive it (avoids error 6070)
-        });
-        taxLinesAdded.push(taxName);
-      }
     }
   } catch (e: any) {
     return { status: 500, body: { ok: false, error: `items step: ${e.message}` } };
   }
 
-  // 7) Resolve the payment terms to print on the invoice. Fuel orders are
-  // ALWAYS Net 10; everything else uses the customer's saved QB terms (their
-  // account default, e.g. Credit Card / Check on Delivery / Due Upon Receipt).
-  const isFuelInvoice = fuelLinesInOrder.length > 0;
+  // 7) Resolve the payment terms to print on the invoice: whatever the rep
+  // chose on the order, else the customer's saved QB terms (their account
+  // default, e.g. Credit Card / Check on Delivery / Due Upon Receipt).
   let salesTermId: string | undefined;
   let termsSource: string;
   let termsWarning: string | null = null;
@@ -536,10 +484,6 @@ export async function invoiceCustomerOrder(
       // Rep explicitly chose terms on the place-order screen — honor it.
       salesTermId = order.payment_term_id;
       termsSource = 'chosen at order';
-    } else if (isFuelInvoice) {
-      salesTermId = (await getNet10TermId()) || undefined;
-      termsSource = 'Net 10 (fuel)';
-      if (!salesTermId) termsWarning = 'Net 10 term not found in QuickBooks — invoice created without terms.';
     } else {
       salesTermId = (await getCustomerSalesTermId(qbCustomerId)) || undefined;
       termsSource = salesTermId ? 'customer default' : 'none';
@@ -668,7 +612,6 @@ export async function invoiceCustomerOrder(
       customer: { id: qbCustomerId, name: qbCustomerName },
       lines_count: lines.length,
       matched: matchSummary,
-      tax_lines_added: taxLinesAdded,
       customer_tax_exempt: customerTaxExempt,
       pdf_attached: pdfPath != null,
       pdf_warning: pdfWarning,

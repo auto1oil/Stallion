@@ -1,6 +1,6 @@
 'use client';
 
-// Driver-side customer list. Same detail as the salesman view (missing
+// Driver-side customer list. Same detail as the office view (missing
 // documents, order cadence, inactive shading) minus balance owed. Drivers
 // aren't assigned to customers, so there's no "my customers" toggle — they see
 // the whole list and can upload a document if they pick one up on a delivery.

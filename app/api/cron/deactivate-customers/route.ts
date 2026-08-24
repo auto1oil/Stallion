@@ -3,7 +3,7 @@
 // Secured by CRON_SECRET (Vercel Cron sends it). A business is "inactive" once
 // its most recent activity (in-app order, QuickBooks invoice, or a manual
 // reactivation) is more than nine months old. Inactive businesses render shaded
-// across admin / salesman / driver so reps can try to win them back. A new
+// across admin / office / driver so staff can try to win them back. A new
 // order (recent activity) auto-reactivates; admins can also reactivate manually
 // (sets reactivated_at → a fresh nine-month grace).
 

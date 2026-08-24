@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
 
-type Role = 'admin' | 'driver' | 'salesman' | 'master_admin' | 'customer' | 'office' | 'mechanic' | 'labor';
+type Role = 'admin' | 'driver' | 'contractor' | 'funder' | 'master_admin' | 'customer' | 'office' | 'mechanic' | 'labor';
 
 type Profile = {
   id: string;
@@ -12,18 +12,19 @@ type Profile = {
   phone: string | null;
   // Optional contact email shown on quotes (falls back to login email).
   contact_email: string | null;
-  // Counties this user covers as a salesman. Customers requesting a
+  // Counties this user covers. Customers requesting a
   // visit see only users whose territory includes their county. Empty
   // list = unrestricted.
   territory_counties: string[] | null;
-  // QuickBooks Class for this salesman (drives P&L-by-Class per salesman).
+  // QuickBooks Class for this user (drives P&L-by-Class per rep).
   qb_class: string | null;
 };
 
 const roleBadgeClass: Record<Role, string> = {
   admin: 'bg-brand-50 text-brand-900',
   master_admin: 'bg-brand-50 text-brand-900',
-  salesman: 'bg-emerald-100 text-emerald-900',
+  contractor: 'bg-emerald-100 text-emerald-900',
+  funder: 'bg-indigo-100 text-indigo-900',
   driver: 'bg-gray-100 text-gray-700',
   customer: 'bg-gray-50 text-gray-500',
   office: 'bg-blue-100 text-blue-800',
@@ -31,7 +32,7 @@ const roleBadgeClass: Record<Role, string> = {
   labor: 'bg-purple-100 text-purple-800',
 };
 
-// Counties Auto 1 Oil serves. Match QuickBooks/customer profile values
+// Counties the business serves. Match QuickBooks/customer profile values
 // case-insensitively when filtering reps.
 const COUNTIES = ['Utah County', 'Salt Lake County', 'Davis County', 'Weber County'] as const;
 
@@ -66,7 +67,7 @@ export default function UsersPage() {
 
   useEffect(() => { load(); }, []);
 
-  // QuickBooks class list (for mapping each salesman to their class).
+  // QuickBooks class list (for mapping each user to their class).
   const [qbClasses, setQbClasses] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     fetch('/api/quickbooks/classes').then((r) => r.json()).then((j) => {
@@ -206,17 +207,16 @@ export default function UsersPage() {
               onClick={autoMatchClasses}
               disabled={matching}
               className="px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white hover:bg-brand-900 disabled:opacity-60 font-medium"
-              title="Fill each salesman's QuickBooks Class by matching their name to your QuickBooks classes (skips ones already set)."
+              title="Fill each user's QuickBooks Class by matching their name to your QuickBooks classes (skips ones already set)."
             >
               {matching ? 'Matching…' : '↻ Auto-match QuickBooks classes'}
             </button>
           )}
         </div>
         <p className="text-sm text-gray-500 mt-1">
-          Click a user to assign which counties they cover as a salesman. Customers
-          can only request a visit from a user whose territory includes their county.
-          Empty = unrestricted. Each salesman's <strong>QuickBooks Class</strong> stamps
-          their invoices and drives commission.
+          Click a user to assign which counties they cover. Empty = unrestricted.
+          A user's <strong>QuickBooks Class</strong> stamps the invoices raised
+          against their work.
         </p>
         <button
           onClick={() => { setShowAdd((v) => !v); setAddError(null); setAddResult(null); }}
@@ -243,10 +243,11 @@ export default function UsersPage() {
                 onChange={(e) => setAddForm({ ...addForm, role: e.target.value as Role })}
                 className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
               >
-                <option value="driver">Driver</option>
-                <option value="salesman">Salesman</option>
-                <option value="admin">Admin</option>
+                <option value="driver">Driver / crew</option>
                 <option value="office">Office</option>
+                <option value="contractor">Contractor</option>
+                <option value="funder">Funder</option>
+                <option value="admin">Admin</option>
                 <option value="mechanic">Mechanic</option>
                 <option value="labor">Labor</option>
               </select>
@@ -348,11 +349,11 @@ export default function UsersPage() {
 
                 {isExpanded && (
                   <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 space-y-3">
-                    {/* QuickBooks class — tags this salesman's invoice lines so
+                    {/* QuickBooks class — tags this user's invoice lines so
                         QuickBooks' P&L by Class reports their gross profit. */}
                     <div>
                       <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                        QuickBooks class (salesman)
+                        QuickBooks class
                       </label>
                       <select
                         value={u.qb_class || ''}
@@ -468,10 +469,11 @@ export default function UsersPage() {
                                 onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })}
                                 className="px-2 py-1.5 border border-gray-300 rounded text-sm"
                               >
-                                <option value="driver">Driver</option>
-                                <option value="salesman">Salesman</option>
-                                <option value="admin">Admin</option>
+                                <option value="driver">Driver / crew</option>
                                 <option value="office">Office</option>
+                                <option value="contractor">Contractor</option>
+                                <option value="funder">Funder</option>
+                                <option value="admin">Admin</option>
                                 <option value="mechanic">Mechanic</option>
                                 <option value="labor">Labor</option>
                                 {editing.role === 'master_admin' && (

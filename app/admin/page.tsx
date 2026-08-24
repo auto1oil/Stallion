@@ -478,18 +478,6 @@ export default function AdminOrdersPage() {
           >
             Upload invoice
           </button>
-          <Link
-            href="/admin/fuel-prices"
-            className="px-3 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
-          >
-            Fuel Prices
-          </Link>
-          <Link
-            href="/salesman/order"
-            className="px-4 py-2 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium"
-          >
-            + Place order
-          </Link>
         </div>
       </div>
 
@@ -591,7 +579,7 @@ export default function AdminOrdersPage() {
         <OrderForm
           order={editing}
           drivers={drivers}
-          reps={drivers.filter((p) => p.role === 'salesman' || p.role === 'admin' || p.role === 'master_admin')}
+          reps={drivers.filter((p) => p.role === 'office' || p.role === 'admin' || p.role === 'master_admin')}
           onClose={() => { setShowForm(false); setEditing(null); }}
           onSaved={() => { setShowForm(false); setEditing(null); load(); }}
         />

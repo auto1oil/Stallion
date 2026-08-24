@@ -1,5 +1,5 @@
 // POST /api/admin/order-set-customer — admin-only. Reassign a pending customer
-// order to a different customer (fixes a salesman picking the wrong business
+// order to a different customer (fixes staff picking the wrong business
 // before it's invoiced). Refuses once the order has been invoiced/dispatched.
 
 import { NextResponse } from 'next/server';

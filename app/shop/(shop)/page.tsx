@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import { type CartItem, CONTAINER_SIZES, brandFor, sizeLabel, loadCart, saveCart } from '@/lib/cart';
-import RequestVisitButton from '@/components/RequestVisitButton';
 import CustomItemButton from '@/components/CustomItemButton';
 
 type Product = {
@@ -122,7 +121,6 @@ export default function ShopHomePage() {
           <h1 className="text-2xl font-semibold">Order Products</h1>
           <p className="text-sm text-gray-500">Pick what you need and head to checkout. Pricing on your invoice.</p>
         </div>
-        <RequestVisitButton />
       </div>
 
       {lastOrderItems && lastOrderItems.length > 0 && (

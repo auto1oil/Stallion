@@ -14,10 +14,13 @@ export default async function Home() {
     .single();
 
   if (profile?.role === 'admin' || profile?.role === 'master_admin') redirect('/admin');
-  if (profile?.role === 'salesman') redirect('/salesman');
+  if (profile?.role === 'contractor') redirect('/contractor');
+  if (profile?.role === 'funder') redirect('/funder');
   if (profile?.role === 'customer') redirect('/shop');
-  // Office / labor are hourly staff — their home is the clock. Mechanics get
-  // the full driver experience (deliveries + invoices), so they land on /driver.
-  if (['office', 'labor'].includes(profile?.role || '')) redirect('/driver/hours');
+  // Office reviews and invoices tickets. Labor is hourly staff, so their home
+  // is the clock. Mechanics get the full driver experience (deliveries +
+  // invoices), so they land on /driver.
+  if (profile?.role === 'office') redirect('/work-orders');
+  if (profile?.role === 'labor') redirect('/driver/hours');
   redirect('/driver');
 }

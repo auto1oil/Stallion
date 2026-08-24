@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
-  const isEmployeePath = path.startsWith('/admin') || path.startsWith('/driver') || path.startsWith('/salesman') || path.startsWith('/settings') || path.startsWith('/tasks') || path.startsWith('/reminders') || path.startsWith('/messages');
+  const isEmployeePath = path.startsWith('/admin') || path.startsWith('/driver') || path.startsWith('/tickets') || path.startsWith('/work-orders') || path.startsWith('/contractor') || path.startsWith('/funder') || path.startsWith('/settings') || path.startsWith('/tasks') || path.startsWith('/reminders') || path.startsWith('/messages');
   // The /shop entry points (login + signup) are public; everything else
   // under /shop requires a logged-in customer.
   const isShopAuthedPath = path === '/shop' || path.startsWith('/shop/checkout') || path.startsWith('/shop/account') || path.startsWith('/shop/order') || path.startsWith('/shop/messages');
@@ -35,7 +35,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/shop/login', request.url));
   }
   if (path === '/login' && user) {
-    return NextResponse.redirect(new URL('/admin', request.url));
+    return NextResponse.redirect(new URL('/', request.url));
   }
   if ((path === '/shop/login' || path === '/shop/signup') && user) {
     return NextResponse.redirect(new URL('/shop', request.url));

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { type CartItem } from '@/lib/cart';
 
 // Inline custom-item rows — for ordering anything not in the catalog yet.
-// Lives at the bottom of the product list on /shop, /salesman/order, and the
+// Lives at the bottom of the product list on /shop and the
 // admin order detail.
 //
 // Starts with a single row; a "+ Add another item" button adds more. Each row

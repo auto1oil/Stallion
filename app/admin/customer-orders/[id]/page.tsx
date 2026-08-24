@@ -6,7 +6,6 @@ import { createClient } from '@/lib/supabase-browser';
 import CustomerDocuments from '@/components/CustomerDocuments';
 import { type CartItem, CONTAINER_SIZES, brandFor } from '@/lib/cart';
 import CustomItemButton from '@/components/CustomItemButton';
-import { applyMarkup, tierMarkupForGallons, type FuelTier } from '@/lib/fuel-prices';
 
 // Item names come from QuickBooks as "PACKAGING:PRODUCT" (e.g.
 // "GAL:SUPREME UHP DEXOS 0W-20"). The packaging is already shown separately, so
@@ -29,10 +28,6 @@ type Product = {
   default_weight: string | null;
   default_container_size: string | null;
 };
-
-// A flat inventory item for the picker's "All items" mode + the per-line
-// "match to stocked item" fixer. Admin-only page, so cost is fine here.
-type StaffItem = { id: string; name: string; packaging: string | null; retail_price: number | null; cost: number | null };
 
 type OrderRow = {
   id: string;
@@ -67,8 +62,8 @@ type OrderRow = {
 
 const DISPATCH_TYPES = ['Fuel', 'PCMO', 'DEF', 'Shipping'] as const;
 
-// Fuel products that require a per-invoice price + auto-append fuel taxes.
-// Must stay in sync with FUEL_TAX_ITEM_NAMES in lib/quickbooks.ts.
+// Fuel products, which are priced fresh on every invoice rather than from
+// the catalog, and which make the dispatch row a Fuel run.
 const FUEL_PRODUCT_NAMES = new Set(['Clear Fuel', 'Dyed Fuel', '85-Octane', '91-Octane']);
 
 // Color the price input relative to the default (matched retail) price:
@@ -145,20 +140,12 @@ export default function AdminCustomerOrderDetailPage() {
   // fuel lines (priced fresh each invoice); optional override for everything
   // else (otherwise QB falls back to billing history / item default).
   const [linePrices, setLinePrices] = useState<Record<string, string>>({});
-  // Auto-price breakdown per fuel product name (rack base + customer markup).
-  const [autoFuel, setAutoFuel] = useState<Record<string, { base: number; markup: number; total: number }>>({});
   // Local override of item quantities for snappy input UX. Falls through to
   // the persisted value when no override is set. Saved to DB on blur.
   const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
   const [products, setProducts] = useState<Product[]>([]);
   const [picker, setPicker] = useState<Product | null>(null);
-  // Cost + sales price per order variant, from matched inventory items (admin
-  // only; never shown to customers).
-  const [invMatch, setInvMatch] = useState<Map<string, { cost: number | null; retail: number | null }>>(new Map());
-  // Full active inventory (retail only) for the picker's "All items" mode, so an
-  // admin can add ANY stocked item here — not just the curated catalog families.
-  const [allItems, setAllItems] = useState<StaffItem[]>([]);
-  // Per-line price source chosen with the "match to stocked item" fixer — shows
+    // Per-line price source, kept so a line's own saved unit price shows
   // that item's cost/retail for the line and fills its price (overrides a broken
   // or zero-priced auto-match). Keyed by order-line id.
   const [lineOverride, setLineOverride] = useState<Record<string, { cost: number | null; retail: number | null; name: string }>>({});
@@ -250,7 +237,7 @@ export default function AdminCustomerOrderDetailPage() {
 
   async function load() {
     setLoading(true);
-    const [orderRes, qbRes, prodRes, invRes] = await Promise.all([
+    const [orderRes, qbRes, prodRes] = await Promise.all([
       supabase
         .from('customer_orders')
         .select(`
@@ -272,10 +259,6 @@ export default function AdminCustomerOrderDetailPage() {
         .select('id, name, category, sort_order, container_sizes, weights, sizes_by_weight, variant_label, default_weight, default_container_size')
         .eq('active', true)
         .order('sort_order'),
-      supabase
-        .from('inventory_items')
-        .select('match_product_id, match_weight, match_container_size, cost, retail_price')
-        .not('match_product_id', 'is', null),
     ]);
     const o = orderRes.data as unknown as OrderRow;
     setOrder(o);
@@ -290,106 +273,20 @@ export default function AdminCustomerOrderDetailPage() {
     }
     setQbConnected(!!qbRes.data);
     setProducts((prodRes.data as Product[]) || []);
-    const im = new Map<string, { cost: number | null; retail: number | null }>();
-    ((invRes.data as { match_product_id: string; match_weight: string | null; match_container_size: string | null; cost: number | null; retail_price: number | null }[]) || [])
-      .forEach((r) => {
-        const key = `${r.match_product_id}|${r.match_weight || ''}|${r.match_container_size || ''}`;
-        const existing = im.get(key);
-        // When two inventory items map to the same product/variant, keep the one
-        // with a real retail price so a $0/blank duplicate can't hide a properly
-        // priced item (last-one-wins would otherwise blank the line).
-        if (existing && (existing.retail ?? 0) >= (r.retail_price ?? 0)) return;
-        im.set(key, { cost: r.cost, retail: r.retail_price });
-      });
-    setInvMatch(im);
-    // Pre-fill non-fuel line prices with the matched inventory retail price, so
-    // the default sale price is the starting point (admin can adjust up/down).
+    // Pre-fill each line's price box from whatever price is saved on the line
+    // (an admin can still adjust it before invoicing).
     setLinePrices((prev) => {
       const next = { ...prev };
       for (const it of o.customer_order_items) {
-        if (FUEL_PRODUCT_NAMES.has(it.product_name)) continue;
         if (next[it.id]) continue; // don't clobber an existing edit
-        // A price saved on the line (e.g. set by the "match to stocked item"
-        // fixer) wins over the auto-matched retail so the fix survives a reload.
-        if (it.unit_price != null) { next[it.id] = Number(it.unit_price).toFixed(2); continue; }
-        const m = im.get(`${it.product_id || ''}|${it.weight || ''}|${it.container_size || ''}`);
-        if (m?.retail != null) next[it.id] = m.retail.toFixed(2);
+        if (it.unit_price != null) next[it.id] = Number(it.unit_price).toFixed(2);
       }
       return next;
     });
     setQtyDraft({});
     setLoading(false);
-    if (o) loadFuelAutoPricing(o);
-  }
-
-  // Compute rack price + the volume-tier markup for each fuel line and
-  // pre-fill the price box, so the admin sees the right per-gallon price
-  // automatically (they can still override before invoicing). The markup is
-  // chosen by the line's gallons, using the customer's own tiers when they
-  // have special pricing, otherwise the default tiers. Keyed by line id since
-  // two lines of the same product can fall in different volume tiers.
-  async function loadFuelAutoPricing(o: OrderRow) {
-    const fuelItems = o.customer_order_items.filter((it) => FUEL_PRODUCT_NAMES.has(it.product_name));
-    // Auto-pick the dispatch type from the order's contents so one-click
-    // confirm→warehouse stamps the right type (Fuel vs PCMO).
-    setDispatchType(fuelItems.length > 0 ? 'Fuel' : 'PCMO');
-    if (fuelItems.length === 0) { setAutoFuel({}); return; }
-    const fuelNames = Array.from(new Set(fuelItems.map((it) => it.product_name)));
-    const bizId = o.customer?.business_id || null;
-
-    const [mapRes, defTierRes, custTierRes, bizRes] = await Promise.all([
-      supabase.from('fuel_price_mappings').select('app_product, rack_location, rack_product').in('app_product', fuelNames),
-      supabase.from('fuel_pricing_tiers').select('min_gallons, max_gallons, markup, sort_order'),
-      bizId
-        ? supabase.from('customer_fuel_tiers').select('min_gallons, max_gallons, markup, sort_order').eq('business_id', bizId)
-        : Promise.resolve({ data: [] as FuelTier[] }),
-      bizId
-        ? supabase.from('businesses').select('fuel_special_pricing').eq('id', bizId).maybeSingle()
-        : Promise.resolve({ data: null }),
-    ]);
-    const maps = (mapRes.data as { app_product: string; rack_location: string; rack_product: string }[]) || [];
-    if (maps.length === 0) { setAutoFuel({}); return; }
-
-    const special = !!(bizRes.data as { fuel_special_pricing?: boolean } | null)?.fuel_special_pricing;
-    const custTiers = (custTierRes.data as FuelTier[]) || [];
-    const defTiers = (defTierRes.data as FuelTier[]) || [];
-    const tiers = special && custTiers.length ? custTiers : defTiers;
-
-    // Latest rack price per mapped product.
-    const baseByProduct = new Map<string, number>();
-    await Promise.all(maps.map(async (mp) => {
-      const { data } = await supabase
-        .from('rack_prices')
-        .select('price')
-        .eq('location', mp.rack_location)
-        .eq('product', mp.rack_product)
-        .order('eff_date', { ascending: false, nullsFirst: false })
-        .order('received_at', { ascending: false })
-        .limit(1);
-      const base = data && data[0] ? Number((data[0] as { price: number }).price) : null;
-      if (base != null) baseByProduct.set(mp.app_product, base);
-    }));
-
-    // One entry per fuel line: rack base + tier markup picked by its gallons.
-    const info: Record<string, { base: number; markup: number; total: number }> = {};
-    for (const it of fuelItems) {
-      const base = baseByProduct.get(it.product_name);
-      if (base == null) continue;
-      const markup = tierMarkupForGallons(tiers, it.quantity) ?? 0;
-      info[it.id] = { base, markup, total: applyMarkup(base, markup) };
-    }
-    setAutoFuel(info);
-
-    // Pre-fill any empty fuel price boxes with the computed total.
-    setLinePrices((prev) => {
-      const next = { ...prev };
-      for (const it of fuelItems) {
-        if (!next[it.id] && info[it.id]) {
-          next[it.id] = String(info[it.id].total);
-        }
-      }
-      return next;
-    });
+    // Fuel lines make this a Fuel dispatch run; everything else is PCMO.
+    setDispatchType(o.customer_order_items.some((it) => FUEL_PRODUCT_NAMES.has(it.product_name)) ? 'Fuel' : 'PCMO');
   }
 
   async function saveItemQty(itemId: string, raw: string) {
@@ -441,31 +338,6 @@ export default function AdminCustomerOrderDetailPage() {
   //  3) (for catalog/quick products) re-points the stocked item's default match
   //     to THIS product, so every future order of it prices from this item —
   //     i.e. the fix "carries over" instead of being per-order only.
-  async function applyLineMatch(
-    line: { id: string; product_id: string | null; weight: string | null; container_size: string },
-    pick: StaffItem,
-  ) {
-    setLineOverride((prev) => ({ ...prev, [line.id]: { cost: pick.cost, retail: pick.retail_price, name: pick.name } }));
-    if (pick.retail_price != null) {
-      setLinePrices((prev) => ({ ...prev, [line.id]: pick.retail_price!.toFixed(2) }));
-    }
-    await supabase.from('customer_order_items').update({ unit_price: pick.retail_price }).eq('id', line.id);
-    if (line.product_id) {
-      await supabase.from('inventory_items').update({
-        match_product_id: line.product_id,
-        match_weight: line.weight || null,
-        match_container_size: line.container_size || null,
-      }).eq('id', pick.id);
-      // Reflect the new match locally so this line (and any sibling line for the
-      // same product) reports the item's cost/retail right away.
-      setInvMatch((prev) => {
-        const next = new Map(prev);
-        next.set(`${line.product_id || ''}|${line.weight || ''}|${line.container_size || ''}`, { cost: pick.cost, retail: pick.retail_price });
-        return next;
-      });
-    }
-  }
-
   async function addItem(item: CartItem) {
     if (!order) return;
     // Merge into an existing matching line if one is already on the order,
@@ -507,22 +379,6 @@ export default function AdminCustomerOrderDetailPage() {
   }
 
   useEffect(() => { load(); }, [orderId]);
-
-  // Full active inventory for the picker's "All items" mode and the per-line
-  // "match to stocked item" fixer. Direct read (admin page → RLS allows it) so
-  // we get cost too, which the fixer shows alongside retail.
-  useEffect(() => {
-    supabase
-      .from('inventory_items')
-      .select('id, description, qb_name, packaging, retail_price, cost')
-      .eq('active', true)
-      .order('packaging')
-      .order('description')
-      .then(({ data }) => {
-        setAllItems(((data as { id: string; description: string | null; qb_name: string; packaging: string | null; retail_price: number | null; cost: number | null }[]) || [])
-          .map((r) => ({ id: r.id, name: r.description || r.qb_name, packaging: r.packaging, retail_price: r.retail_price, cost: r.cost })));
-      });
-  }, [supabase]);
 
   async function createInvoiceViaQB() {
     if (!order) return;
@@ -937,38 +793,6 @@ export default function AdminCustomerOrderDetailPage() {
               <div className="text-sm flex-1 min-w-[160px]">
                 <div className="font-medium">{cleanItemName(it.product_name)}{it.weight ? ' ' + it.weight : ''}</div>
                 <div className="text-xs text-gray-500">{it.container_size}</div>
-                {(() => {
-                  // A per-line override (from the "match to stocked item" fixer)
-                  // wins over the auto-match, so a broken/zero-priced match can
-                  // be corrected right here.
-                  const m = lineOverride[it.id] || invMatch.get(`${it.product_id || ''}|${it.weight || ''}|${it.container_size || ''}`);
-                  if (!m || (m.cost == null && m.retail == null)) return null;
-                  const enteredStr = linePrices[it.id] ?? '';
-                  const entered = enteredStr.trim() === '' ? null : Number(enteredStr);
-                  const hasEntered = entered != null && !Number.isNaN(entered);
-                  // Below/at cost -> red+bold (losing money); at/above retail -> green.
-                  const belowCost = hasEntered && m.cost != null && (entered as number) <= m.cost;
-                  const atRetail = hasEntered && m.retail != null && (entered as number) >= m.retail;
-                  return (
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {m.cost != null && (
-                        <span className={belowCost ? 'text-red-600 font-bold' : ''}>Cost ${m.cost.toFixed(2)}</span>
-                      )}
-                      {m.cost != null && m.retail != null && <span> · </span>}
-                      {m.retail != null && (
-                        <span className={atRetail ? 'text-emerald-600 font-semibold' : ''}>Sells ${m.retail.toFixed(2)}</span>
-                      )}
-                      {belowCost && <span className="text-red-600 font-bold"> · below cost!</span>}
-                    </div>
-                  );
-                })()}
-                {isPending && !isFuel && (
-                  <LineMatcher
-                    items={allItems}
-                    currentName={lineOverride[it.id]?.name || null}
-                    onPick={(pick) => applyLineMatch(it, pick)}
-                  />
-                )}
               </div>
               {isPending ? (
                 <>
@@ -986,9 +810,7 @@ export default function AdminCustomerOrderDetailPage() {
                     />
                   </div>
                   {(() => {
-                    const baseRetail = isFuel
-                      ? null
-                      : (lineOverride[it.id]?.retail ?? invMatch.get(`${it.product_id || ''}|${it.weight || ''}|${it.container_size || ''}`)?.retail ?? null);
+                    const baseRetail = lineOverride[it.id]?.retail ?? null;
                     const enteredStr = linePrices[it.id] ?? '';
                     const entered = enteredStr.trim() === '' ? null : Number(enteredStr);
                     const color = isFuel ? undefined : priceColor(Number.isNaN(entered as number) ? null : entered, baseRetail);
@@ -1009,13 +831,6 @@ export default function AdminCustomerOrderDetailPage() {
                       />
                       <span className="text-xs text-gray-500">{isFuel ? '/ gal' : 'ea'}</span>
                     </div>
-                    {isFuel && autoFuel[it.id] && (
-                      <span className="text-[10px] text-gray-500">
-                        auto: rack ${autoFuel[it.id].base.toFixed(4)}
-                        {autoFuel[it.id].markup ? ` + $${autoFuel[it.id].markup.toFixed(2)} over rack` : ''}
-                        {' = '}${autoFuel[it.id].total.toFixed(4)}
-                      </span>
-                    )}
                   </div>
                     );
                   })()}
@@ -1047,16 +862,7 @@ export default function AdminCustomerOrderDetailPage() {
           ) : (
             <ProductPickerList
               products={products}
-              items={allItems}
               onPick={(p) => setPicker(p)}
-              onPickItem={(it) => addItem({
-                product_id: null,
-                product_name: it.name,
-                container_size: it.packaging || '—',
-                brand: null,
-                weight: null,
-                quantity: 1,
-              })}
               onCancel={() => setShowProductList(false)}
             />
           )}
@@ -1254,67 +1060,11 @@ export default function AdminCustomerOrderDetailPage() {
   );
 }
 
-// Per-order-line "price this line from a stocked item" fixer. Searchable list
-// of every active inventory item; picking one sets the line's cost/retail
-// display + fills its sale price. Used to correct a line whose auto-match is
-// missing or zero-priced (the "below cost / $0.00" case).
-function LineMatcher({ items, currentName, onPick }: {
-  items: StaffItem[];
-  currentName: string | null;
-  onPick: (it: StaffItem) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="text-[11px] text-brand-700 hover:underline mt-0.5">
-        {currentName ? `Priced from: ${currentName} · change` : '+ Match to stocked item'}
-      </button>
-    );
-  }
-
-  const needle = q.trim().toLowerCase();
-  const list = (needle ? items.filter((i) => `${i.name} ${i.packaging || ''}`.toLowerCase().includes(needle)) : items).slice(0, 40);
-
-  return (
-    <div className="mt-1 w-full max-w-xs">
-      <input
-        autoFocus
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Search stocked items…"
-        className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-white"
-      />
-      <div className="mt-1 border border-gray-200 rounded max-h-48 overflow-y-auto bg-white divide-y divide-gray-100">
-        {list.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-gray-400">No matches.</div>
-        ) : list.map((i) => (
-          <button
-            key={i.id}
-            onClick={() => { onPick(i); setOpen(false); setQ(''); }}
-            className="w-full text-left px-2 py-1.5 text-xs hover:bg-gray-50 flex justify-between gap-2"
-          >
-            <span className="truncate">{i.name}{i.packaging ? ` · ${i.packaging}` : ''}</span>
-            <span className="text-gray-500 whitespace-nowrap">{i.retail_price != null ? `$${i.retail_price.toFixed(2)}` : '—'}</span>
-          </button>
-        ))}
-      </div>
-      <button onClick={() => { setOpen(false); setQ(''); }} className="text-[11px] text-gray-400 hover:underline mt-1">Cancel</button>
-    </div>
-  );
-}
-
-function ProductPickerList({ products, items, onPick, onPickItem, onCancel }: {
+function ProductPickerList({ products, onPick, onCancel }: {
   products: Product[];
-  items: StaffItem[];
   onPick: (p: Product) => void;
-  onPickItem: (it: StaffItem) => void;
   onCancel: () => void;
 }) {
-  // "catalog" = the curated product families (pick weight/size in a dialog).
-  // "all" = every stocked inventory item, added straight to the order.
-  const [mode, setMode] = useState<'catalog' | 'all'>('catalog');
   const [search, setSearch] = useState('');
   const q = search.trim().toLowerCase();
 
@@ -1330,38 +1080,22 @@ function ProductPickerList({ products, items, onPick, onPickItem, onCancel }: {
       grouped[p.category].push(p);
     });
 
-  const filteredItems = items.filter(
-    (it) => !q || `${it.name} ${it.packaging || ''}`.toLowerCase().includes(q),
-  );
-
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-3">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="flex gap-1">
-          {([['catalog', 'Catalog'], ['all', 'All items']] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setMode(key)}
-              className={`px-2.5 py-1 text-xs rounded-md border ${mode === key ? 'border-brand-700 text-brand-700 bg-brand-50 font-semibold' : 'border-gray-200 text-gray-500 hover:text-gray-800'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="flex items-center justify-end gap-2 mb-2">
         <button onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-900 px-2">
           Cancel
         </button>
       </div>
       <input
         type="text"
-        placeholder={mode === 'all' ? 'Search all items…' : 'Search products…'}
+        placeholder="Search products…"
         autoFocus
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full mb-3 px-3 py-2 border border-gray-300 rounded-md text-sm"
       />
-      {mode === 'catalog' ? (
-        categoryOrder.length === 0 ? (
+      {categoryOrder.length === 0 ? (
           <p className="text-sm text-gray-500 py-3 text-center">No matching products.</p>
         ) : (
           <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -1383,28 +1117,7 @@ function ProductPickerList({ products, items, onPick, onPickItem, onCancel }: {
               </div>
             ))}
           </div>
-        )
-      ) : filteredItems.length === 0 ? (
-        <p className="text-sm text-gray-500 py-3 text-center">{items.length === 0 ? 'No inventory items.' : 'No matches.'}</p>
-      ) : (
-        <div className="border border-gray-200 rounded-md divide-y divide-gray-100 max-h-96 overflow-y-auto">
-          {filteredItems.map((it) => (
-            <button
-              key={it.id}
-              onClick={() => onPickItem(it)}
-              className="w-full flex justify-between items-center gap-3 px-3 py-2 hover:bg-gray-50 text-left"
-            >
-              <span className="min-w-0">
-                <span className="text-sm block truncate">{it.name}</span>
-                <span className="text-xs text-gray-500">
-                  {it.packaging || '—'}{it.retail_price != null ? ` · $${it.retail_price.toFixed(2)}` : ''}
-                </span>
-              </span>
-              <span className="text-brand-700 font-medium text-sm whitespace-nowrap shrink-0">+ Add</span>
-            </button>
-          ))}
-        </div>
-      )}
+        )}
     </div>
   );
 }

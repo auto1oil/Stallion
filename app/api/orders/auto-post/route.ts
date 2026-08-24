@@ -7,7 +7,7 @@
 // creates the warehouse/dispatch row automatically. This applies when:
 //   - an admin/master_admin placed the order (an admin submitting IS the
 //     approval), regardless of the business flag; or
-//   - a salesman/driver placed it for a customer whose business has
+//   - office/driver staff placed it for a customer whose business has
 //     `auto_invoice_orders` on.
 //
 // Safe by design:
@@ -22,8 +22,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { invoiceCustomerOrder } from '@/lib/quickbooks-invoice';
-import { tierMarkupForGallons, applyMarkup, type FuelTier } from '@/lib/fuel-prices';
 
+// Product names that make a dispatch row a Fuel run rather than a PCMO one.
 const FUEL_PRODUCT_NAMES = new Set(['Clear Fuel', 'Dyed Fuel', '85-Octane', '91-Octane']);
 
 export async function POST(req: Request) {
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
   const { data: actor } = await supabase
     .from('profiles').select('role').eq('id', user.id).single();
-  const staffRoles = ['salesman', 'driver', 'mechanic', 'admin', 'master_admin'];
+  const staffRoles = ['office', 'driver', 'mechanic', 'admin', 'master_admin'];
   if (!actor || !staffRoles.includes(actor.role)) {
     return NextResponse.json({ ok: false, error: 'staff only' }, { status: 403 });
   }
@@ -76,11 +76,11 @@ export async function POST(req: Request) {
 
   const { data: business } = await admin
     .from('businesses')
-    .select('id, name, auto_invoice_orders, fuel_special_pricing')
+    .select('id, name, auto_invoice_orders')
     .eq('id', customer.business_id)
     .single();
   // Admin-placed orders skip approval regardless of the business flag; for
-  // salesman/driver placers the business must be flagged for auto-invoice.
+  // office/driver placers the business must be flagged for auto-invoice.
   const flagged = !!business?.auto_invoice_orders;
   if (!flagged && !actorIsAdmin) {
     // The customer's *linked* business isn't flagged. This is the usual cause
@@ -94,65 +94,19 @@ export async function POST(req: Request) {
     });
   }
 
-  // 4) Load items + compute fuel tier prices to pass as per-line overrides.
+  // 4) Load the order's items (for the dispatch note + run type).
   const { data: items } = await admin
     .from('customer_order_items')
     .select('id, product_name, quantity, notes')
     .eq('customer_order_id', order.id);
   const orderItems = items || [];
-
-  const fuelPrices: Record<string, number> = {};
   const fuelItems = orderItems.filter((it) => FUEL_PRODUCT_NAMES.has(it.product_name));
-  if (fuelItems.length > 0) {
-    const fuelNames = Array.from(new Set(fuelItems.map((it) => it.product_name)));
-    const { data: maps } = await admin
-      .from('fuel_price_mappings')
-      .select('app_product, rack_location, rack_product')
-      .in('app_product', fuelNames);
 
-    // Tiers: the customer's own when special pricing is on (and present),
-    // otherwise the default table.
-    let tiers: FuelTier[] = [];
-    if (business.fuel_special_pricing) {
-      const { data } = await admin
-        .from('customer_fuel_tiers')
-        .select('min_gallons, max_gallons, markup, sort_order')
-        .eq('business_id', business.id);
-      tiers = (data as FuelTier[]) || [];
-    }
-    if (tiers.length === 0) {
-      const { data } = await admin
-        .from('fuel_pricing_tiers')
-        .select('min_gallons, max_gallons, markup, sort_order');
-      tiers = (data as FuelTier[]) || [];
-    }
-
-    // Latest rack price per mapped product.
-    const rackByProduct = new Map<string, number>();
-    for (const mp of (maps as { app_product: string; rack_location: string; rack_product: string }[]) || []) {
-      const { data: rp } = await admin
-        .from('rack_prices')
-        .select('price')
-        .eq('location', mp.rack_location)
-        .eq('product', mp.rack_product)
-        .order('eff_date', { ascending: false, nullsFirst: false })
-        .order('received_at', { ascending: false })
-        .limit(1);
-      const base = rp && rp[0] ? Number((rp[0] as { price: number }).price) : null;
-      if (base != null) rackByProduct.set(mp.app_product, base);
-    }
-
-    for (const it of fuelItems) {
-      const base = rackByProduct.get(it.product_name);
-      if (base == null) continue; // no rack → let QB history/default price it
-      const markup = tierMarkupForGallons(tiers, it.quantity) ?? 0;
-      fuelPrices[it.id] = applyMarkup(base, markup);
-    }
-  }
-
-  // 5) Invoice in QuickBooks. On any failure, leave the order pending so it
-  //    falls into the normal approval flow.
-  const inv = await invoiceCustomerOrder(admin, order.id, fuelPrices);
+  // 5) Invoice in QuickBooks with the catalog's own prices — there are no
+  //    per-line overrides to compute now that tiered fuel pricing is gone.
+  //    On any failure, leave the order pending so it falls into the normal
+  //    approval flow.
+  const inv = await invoiceCustomerOrder(admin, order.id, {});
   if (inv.status !== 200 || !inv.body.ok) {
     // Record WHY it didn't auto-post so the admin sees it in the Confirm queue
     // instead of silently having to approve it. Best-effort (column optional).

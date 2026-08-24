@@ -23,8 +23,8 @@ export default function SupportChatWidget() {
   const [error, setError] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  // Don't show on staff/admin/driver/salesman areas or the in-app messages.
-  const hidden = /^\/(admin|driver|salesman|settings|tasks|reminders|messages)/.test(pathname)
+  // Don't show on staff areas or the in-app messages.
+  const hidden = /^\/(admin|driver|tickets|work-orders|contractor|funder|settings|tasks|reminders|messages)/.test(pathname)
     || pathname.startsWith('/shop/messages');
 
   useEffect(() => {

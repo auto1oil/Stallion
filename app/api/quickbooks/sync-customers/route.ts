@@ -3,7 +3,7 @@
 // Pulls every active customer from QuickBooks Online and inserts/updates
 // matching rows in public.profiles. Customers that don't yet have an auth
 // account exist as "imported" profiles (no auth.users row) — they can be
-// selected when placing orders on their behalf via /salesman/order.
+// selected when placing orders on their behalf.
 //
 // Returns a count of {created, updated, skipped} so the admin UI can show
 // progress.

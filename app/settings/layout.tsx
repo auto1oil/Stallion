@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase-server';
 import NavBar from '@/components/NavBar';
+import { type Role } from '@/lib/feature-catalog';
 
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
@@ -17,7 +18,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <NavBar role={profile.role as 'admin' | 'driver' | 'salesman' | 'master_admin'} email={profile.email} />
+      <NavBar role={profile.role as Role} email={profile.email} />
       <main className="max-w-5xl mx-auto px-4 py-6">{children}</main>
     </div>
   );

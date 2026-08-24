@@ -5,17 +5,16 @@ import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import NotificationBell from './NotificationBell';
 import MessageBubble from './MessageBubble';
-import { navGroupForRole, featureKey } from '@/lib/feature-catalog';
+import { navGroupForRole, featureKey, type Role } from '@/lib/feature-catalog';
 
 const supabase = createClient();
 
-export default function NavBar({ role, email }: { role: 'admin' | 'driver' | 'salesman' | 'master_admin' | 'office' | 'mechanic' | 'labor'; email: string }) {
+export default function NavBar({ role, email }: { role: Role; email: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const [userId, setUserId] = useState<string | null>(null);
   const [firstName, setFirstName] = useState('');
   const [approvals, setApprovals] = useState(0);
-  const [lowStock, setLowStock] = useState(0);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   // Tabs a master admin has switched off for this role (feature_flags).
@@ -35,22 +34,24 @@ export default function NavBar({ role, email }: { role: 'admin' | 'driver' | 'sa
     });
   }, [email]);
 
-  // Show a red badge on "For Approval" when something is waiting. Admins only.
+  // Red badge on the tab that owns this role's pending approvals: submitted
+  // tickets for office/admin, office-approved ones awaiting funds for the
+  // funder, submitted ones for the contractor's own crews.
   useEffect(() => {
-    if (role !== 'admin' && role !== 'master_admin') return;
-    (async () => {
-      const [ords, reqs] = await Promise.all([
-        supabase.from('customer_orders').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('business_link_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      ]);
-      setApprovals((ords.count || 0) + (reqs.count || 0));
-    })();
-  }, [role, pathname]);
-
-  // Red badge on the Inventory tab when items are at/below their reorder point.
-  useEffect(() => {
-    if (role !== 'admin' && role !== 'master_admin') return;
-    supabase.rpc('low_stock_count').then(({ data }) => setLowStock((data as number) || 0));
+    const waitingFor: Partial<Record<Role, string>> = {
+      admin: 'submitted',
+      master_admin: 'submitted',
+      office: 'submitted',
+      contractor: 'submitted',
+      funder: 'office_approved',
+    };
+    const status = waitingFor[role];
+    if (!status) return;
+    supabase
+      .from('work_orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', status)
+      .then(({ count }) => setApprovals(count || 0));
   }, [role, pathname]);
 
   async function logout() {
@@ -60,69 +61,80 @@ export default function NavBar({ role, email }: { role: 'admin' | 'driver' | 'sa
   }
 
   const adminLinks = [
+    { href: '/work-orders',           label: 'Work Orders' },
+    { href: '/work-orders/approve',   label: 'Approve' },
     { href: '/admin',                 label: 'Orders' },
     { href: '/admin/customer-orders', label: 'Confirm' },
     { href: '/admin/delivery-log',    label: 'Delivery Log' },
     { href: '/admin/trucking',        label: 'Trucking' },
     { href: '/admin/customers',       label: 'Customers' },
-    { href: '/admin/sales-log',       label: 'Salesman' },
-    { href: '/admin/fuel-prices',     label: 'Fuel' },
-    { href: '/admin/inventory',       label: 'Inventory' },
-    { href: '/admin/bills',           label: 'Bills' },
-    { href: '/admin/card-charges',    label: 'Card Charges' },
-    { href: '/admin/missing-receipts', label: 'Missing Receipts' },
     { href: '/admin/dashboard',       label: 'Dashboard' },
     { href: '/admin/po',              label: 'PO #' },
-    { href: '/admin/fuel-po',         label: 'Fuel PO' },
     { href: '/admin/hours',           label: 'Time Clock' },
+    { href: '/admin/users',           label: 'Users' },
   ];
+  // Office reviews + invoices tickets; it doesn't run the rest of the shop.
+  const officeLinks = [
+    { href: '/work-orders',         label: 'Work Orders' },
+    { href: '/work-orders/approve', label: 'Approve' },
+    { href: '/driver/customers',    label: 'Customers' },
+    { href: '/driver/hours',        label: 'Hours' },
+    { href: '/tasks',               label: 'Tasks' },
+    { href: '/reminders',           label: 'Reminders' },
+  ];
+  // Field crew: fill out tickets, plus the delivery side of the business.
   const driverLinks = [
+    { href: '/tickets',               label: 'My Tickets' },
+    { href: '/tickets/new',           label: 'New Ticket' },
     { href: '/driver',                label: 'Orders' },
     { href: '/driver/delivery-log',   label: 'Delivery Log' },
     { href: '/driver/trucking',       label: 'Trucking' },
     { href: '/driver/customers',      label: 'Customers' },
-    { href: '/driver/inventory',      label: 'Inventory' },
-    { href: '/driver/hours',          label: 'My hours' },
-    { href: '/salesman/order',        label: 'Place Order' },
+    { href: '/driver/hours',          label: 'Hours' },
     { href: '/tasks',                 label: 'Tasks' },
     { href: '/reminders',             label: 'Reminders' },
   ];
-  const salesmanLinks = [
-    { href: '/salesman/orders',         label: 'Orders' },
-    { href: '/salesman/invoices',       label: 'Invoices' },
-    { href: '/salesman/order',          label: 'Place Order' },
-    { href: '/salesman/all-customers',  label: 'Customers' },
-    { href: '/salesman/customers',      label: 'My Customers' },
-    { href: '/salesman/earnings',       label: 'Commissions' },
-    { href: '/salesman/inventory',      label: 'Inventory' },
-    { href: '/salesman/fuel',           label: 'Fuel' },
-    { href: '/salesman/forms',          label: 'Forms' },
-    { href: '/salesman/quotes',         label: 'Quotes' },
-    { href: '/tasks',                   label: 'Tasks' },
-    { href: '/reminders',               label: 'Reminders' },
+  const contractorLinks = [
+    { href: '/contractor',           label: 'Work Orders' },
+    { href: '/contractor/approvals', label: 'Approvals' },
+    { href: '/contractor/rates',     label: 'Rates' },
+    { href: '/messages',             label: 'Messages' },
   ];
-  // Office / mechanic / labor are hourly staff: clock in + tasks/reminders.
+  const funderLinks = [
+    { href: '/funder',         label: 'Orders' },
+    { href: '/funder/approve', label: 'Approve Funds' },
+  ];
+  // Mechanic / labor are hourly staff: clock in + tasks/reminders.
   const hourlyLinks = [
-    { href: '/driver/hours', label: 'My hours' },
+    { href: '/driver/hours', label: 'Hours' },
     { href: '/tasks',        label: 'Tasks' },
     { href: '/reminders',    label: 'Reminders' },
   ];
   const baseLinks =
     role === 'admin' || role === 'master_admin'
       ? adminLinks
-      : role === 'salesman'
-      ? salesmanLinks
+      : role === 'office'
+      ? officeLinks
+      : role === 'contractor'
+      ? contractorLinks
+      : role === 'funder'
+      ? funderLinks
       : role === 'driver' || role === 'mechanic'
       ? driverLinks
       : hourlyLinks;
   // Hide tabs a master admin switched off for this role. (Reminders &
   // Permissions live on the Dashboard, not the top nav.)
+  // Which tab wears the pending-approval badge for this role.
+  const approvalsHref =
+    role === 'contractor' ? '/contractor/approvals'
+    : role === 'funder' ? '/funder/approve'
+    : '/work-orders/approve';
   const group = navGroupForRole(role);
   const links = group ? baseLinks.filter((l) => !hidden.has(featureKey(group, l.href))) : baseLinks;
 
   function isActive(href: string): boolean {
     if (!pathname) return false;
-    if (href === '/admin' || href === '/driver' || href === '/salesman') {
+    if (['/admin', '/driver', '/tickets', '/work-orders', '/contractor', '/funder'].includes(href)) {
       return pathname === href;
     }
     return pathname === href || pathname.startsWith(href + '/');
@@ -190,14 +202,9 @@ export default function NavBar({ role, email }: { role: 'admin' | 'driver' | 'sa
                 ].join(' ')}
               >
                 {l.label}
-                {l.href === '/admin/customer-orders' && approvals > 0 && (
+                {l.href === approvalsHref && approvals > 0 && (
                   <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold bg-red-500 text-white rounded-full align-middle">
                     {approvals > 9 ? '9+' : approvals}
-                  </span>
-                )}
-                {l.href === '/admin/inventory' && lowStock > 0 && (
-                  <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold bg-red-500 text-white rounded-full align-middle">
-                    {lowStock > 9 ? '9+' : lowStock}
                   </span>
                 )}
               </Link>

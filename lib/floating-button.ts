@@ -15,14 +15,14 @@ export type FabConfig = {
 export type FabAction = { label: string; href: string; group: string };
 
 // Every destination the button can point at — built from the app's tab catalog
-// (every admin / salesman / driver tab) plus a few app-wide shortcuts, so any
+// (every admin / office / crew / contractor / funder tab) plus a few app-wide shortcuts, so any
 // tab in the app can be the button's action. Grouped for the Settings picker.
 const GROUP_TITLE: Record<FeatureGroup, string> = Object.fromEntries(
   FEATURE_GROUP_TITLES.map((g) => [g.group, g.title]),
 ) as Record<FeatureGroup, string>;
 
 const SHORTCUTS: FabAction[] = [
-  { group: 'Shortcuts', label: 'Log Visit', href: '/salesman?log=1' },
+  { group: 'Shortcuts', label: 'New Ticket', href: '/tickets/new' },
   { group: 'Shortcuts', label: 'Messages', href: '/messages' },
   { group: 'Shortcuts', label: 'Settings', href: '/settings' },
   { group: 'Shortcuts', label: 'Home', href: '/' },
@@ -46,8 +46,8 @@ export const FAB_EVENT = 'floating-button-changed';
 
 const DEFAULT: FabConfig = {
   enabled: false,
-  label: 'Log Visit',
-  href: '/salesman?log=1',
+  label: 'New Ticket',
+  href: '/tickets/new',
   top: null,
   left: null,
 };
@@ -57,9 +57,7 @@ export function loadFab(): FabConfig {
   try {
     const raw = localStorage.getItem(FAB_KEY);
     if (!raw) return { ...DEFAULT };
-    const cfg = { ...DEFAULT, ...(JSON.parse(raw) as Partial<FabConfig>) };
-    if (cfg.label === 'Log visit') cfg.label = 'Log Visit'; // normalize old default
-    return cfg;
+    return { ...DEFAULT, ...(JSON.parse(raw) as Partial<FabConfig>) };
   } catch {
     return { ...DEFAULT };
   }

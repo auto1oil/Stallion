@@ -31,12 +31,12 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
   const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (!me || !['salesman', 'driver', 'mechanic', 'admin', 'master_admin'].includes(me.role)) {
+  if (!me || !['office', 'driver', 'mechanic', 'contractor', 'admin', 'master_admin'].includes(me.role)) {
     return NextResponse.json({ ok: false, error: 'staff only' }, { status: 403 });
   }
   // Reps/admins may see account balances; drivers may not (except the inactive
   // "still owes" warning applied below).
-  const isRep = me.role === 'salesman' || me.role === 'admin' || me.role === 'master_admin';
+  const isRep = me.role === 'office' || me.role === 'admin' || me.role === 'master_admin';
 
   const db = createAdminClient();
 

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase-server';
 import NavBar from '@/components/NavBar';
 import FeatureGuard from '@/components/FeatureGuard';
-import MissingReceiptsBanner from '@/components/MissingReceiptsBanner';
+import { navGroupForRole, type Role } from '@/lib/feature-catalog';
 
 export default async function DriverLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
@@ -21,14 +21,18 @@ export default async function DriverLayout({ children }: { children: React.React
   if (profile.role === 'admin' || profile.role === 'master_admin') {
     redirect('/admin');
   }
-  if (profile.role === 'salesman') redirect('/salesman');
+  if (profile.role === 'contractor') redirect('/contractor');
+  if (profile.role === 'funder') redirect('/funder');
   if (profile.role === 'customer') redirect('/shop');
+
+  // Office shares the crew's customer directory + time clock but keeps its own
+  // tab set, so the guard follows the role rather than the folder.
+  const group = navGroupForRole(profile.role) || 'driver';
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <NavBar role={profile.role as 'driver' | 'office' | 'mechanic' | 'labor'} email={profile.email} />
-      <MissingReceiptsBanner />
-      <FeatureGuard group="driver" />
+      <NavBar role={profile.role as Role} email={profile.email} />
+      <FeatureGuard group={group} />
       <main className="max-w-5xl mx-auto px-4 py-6">{children}</main>
     </div>
   );

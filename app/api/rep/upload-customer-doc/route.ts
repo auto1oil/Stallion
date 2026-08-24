@@ -2,8 +2,8 @@
 //
 // Multipart form: { business_id, doc_type, file }
 //
-// A sales rep uploads one of the three customer documents (profile_sheet,
-// tax_exempt, fein) on behalf of a business they're assigned to. The
+// Office/crew staff upload one of the three customer documents (profile_sheet,
+// tax_exempt, fein) on behalf of a business. The
 // doc is stored against the business owner's profile so the existing
 // CustomerDocuments component picks it up for the customer too.
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   // but, unlike salesmen, aren't tied to a specific assignment.
   const { data: actor } = await supabase
     .from('profiles').select('role').eq('id', user.id).single();
-  if (!actor || !['salesman', 'driver', 'mechanic', 'admin', 'master_admin'].includes(actor.role)) {
+  if (!actor || !['office', 'driver', 'mechanic', 'contractor', 'admin', 'master_admin'].includes(actor.role)) {
     return NextResponse.json({ ok: false, error: 'staff only' }, { status: 403 });
   }
 
@@ -42,18 +42,6 @@ export async function POST(req: Request) {
   // Data ops run with the service-role client: drivers aren't covered by the
   // is_staff() document policies, and the caller's role is already verified.
   const db = createAdminClient();
-
-  // Verify the rep is assigned to this business (admins + drivers skip the check).
-  if (actor.role === 'salesman') {
-    const { data: biz } = await db
-      .from('businesses')
-      .select('assigned_sales_rep_id')
-      .eq('id', businessId)
-      .single();
-    if (!biz || biz.assigned_sales_rep_id !== user.id) {
-      return NextResponse.json({ ok: false, error: 'not your assigned customer' }, { status: 403 });
-    }
-  }
 
   // Writes run with the rep's own session. The "Staff manage customer
   // documents" policies (section 23) permit staff to upload on a customer's

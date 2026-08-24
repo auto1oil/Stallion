@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
-import FuelPricesWidget from '@/components/FuelPricesWidget';
 
 type OrderStatus = 'warehouse' | 'out_for_delivery' | 'delivered';
 
@@ -92,7 +91,6 @@ export default function DriverOrdersPage() {
   return (
     <div>
       <h1 className="text-2xl font-semibold mb-4">Orders</h1>
-      <FuelPricesWidget />
       <div className="flex gap-2 mb-4 flex-wrap">
         {([
           { key: 'pending',          label: 'Pending' },

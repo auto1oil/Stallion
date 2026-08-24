@@ -1,4 +1,4 @@
-// POST /api/admin/users — admin-only: create a staff login (driver/salesman/
+// POST /api/admin/users — admin-only: create a staff login (driver/contractor/
 // admin) without leaving the app. Uses the service-role key to create the auth
 // user; the handle_new_user trigger makes the profile, then we set role/phone.
 // Returns a temporary password to hand to the new user (they're forced to
@@ -10,7 +10,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 
-const ROLES = ['driver', 'salesman', 'admin', 'office', 'mechanic', 'labor'] as const;
+const ROLES = ['driver', 'contractor', 'funder', 'admin', 'office', 'mechanic', 'labor'] as const;
 type NewRole = (typeof ROLES)[number];
 
 function tempPassword(): string {

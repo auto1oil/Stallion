@@ -18,7 +18,8 @@ export default async function CustomerShopLayout({ children }: { children: React
 
   // Employees don't belong here — bounce them to their own area
   if (profile.role === 'admin' || profile.role === 'master_admin') redirect('/admin');
-  if (profile.role === 'salesman') redirect('/salesman');
+  if (profile.role === 'contractor') redirect('/contractor');
+  if (profile.role === 'funder') redirect('/funder');
   if (profile.role === 'driver') redirect('/driver');
 
   // If the customer signed up claiming an existing business but hasn't been

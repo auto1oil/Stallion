@@ -1,6 +1,6 @@
 // GET /api/quickbooks/classes — admin-only list of every QuickBooks Class.
 //
-// Used to map each salesman to their QuickBooks class (and to let an admin see
+// Used to map each staff member to their QuickBooks class (and to let an admin see
 // the full list, e.g. confirm Shelby's class exists). Active + inactive.
 
 import { NextResponse } from 'next/server';
