@@ -1,0 +1,25 @@
+{
+  "name": "Auto 1 Oil Dispatch",
+  "short_name": "Auto 1 Oil",
+  "description": "Order tracking, dispatch, and delivery management for Auto 1 Oil Company.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0b3a8a",
+  "icons": [
+    {
+      "src": "/brand/auto1-circle.png",
+      "sizes": "270x270",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/auto1-circle.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

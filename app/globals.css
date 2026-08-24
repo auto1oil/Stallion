@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { height: 100%; }
+body { background: #f9fafb; color: #111827; }
+
+/* Horizontal scrollers (e.g. mobile navbar) — hide the scrollbar but keep
+   the scrolling behavior. */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ------------------------------------------------------------------ *
+ * Theme: light (default) / medium / dark.
+ * Hand-tuned dark palettes mapped onto the neutral Tailwind utilities the
+ * app actually uses. `medium` is a lighter slate; `dark` is deeper. Brand
+ * amber + red accents read fine on dark, so they're mostly left alone (we
+ * only darken the light brand tint and lighten the dark-amber heading text).
+ * ------------------------------------------------------------------ */
+:root { color-scheme: light; }
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0f141b;        --c-text: #e8edf3;
+  --c-surface: #1a2230;
+  --c-50: #151c27;  --c-100: #232c3a;  --c-200: #2b3543;  --c-300: #36414f;
+  --c-900: #eef2f7; --c-800: #e3e9f0;  --c-700: #d2dae3;  --c-600: #b6c0cc;
+  --c-500: #8c97a4; --c-400: #6f7b88;  --c-300t: #586472;
+  --c-b100: #283341; --c-b200: #303c4b; --c-b300: #3b4859;
+  --c-brand50: #2a2214; --c-brand900: #fbbf24;
+}
+html[data-theme="medium"] {
+  color-scheme: dark;
+  --c-bg: #273140;        --c-text: #f1f4f8;
+  --c-surface: #313d4f;
+  --c-50: #2c3645;  --c-100: #3a4557;  --c-200: #455062;  --c-300: #4e5b6e;
+  --c-900: #f4f7fb; --c-800: #e9eef4;  --c-700: #dae1ea;  --c-600: #c3ccd8;
+  --c-500: #9fabb9; --c-400: #87929f;  --c-300t: #6f7b88;
+  --c-b100: #3a4557; --c-b200: #455062; --c-b300: #515f73;
+  --c-brand50: #3a3320; --c-brand900: #fcd34d;
+}
+
+html:is([data-theme="dark"],[data-theme="medium"]) body { background: var(--c-bg); color: var(--c-text); }
+
+html:is([data-theme="dark"],[data-theme="medium"]) .bg-white   { background-color: var(--c-surface) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .bg-gray-50 { background-color: var(--c-50) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .bg-gray-100{ background-color: var(--c-100) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .bg-gray-200{ background-color: var(--c-200) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .bg-gray-300{ background-color: var(--c-300) !important; }
+
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-900{ color: var(--c-900) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-800{ color: var(--c-800) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-700{ color: var(--c-700) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-600{ color: var(--c-600) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-500{ color: var(--c-500) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-400{ color: var(--c-400) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-gray-300{ color: var(--c-300t) !important; }
+
+html:is([data-theme="dark"],[data-theme="medium"]) .border-gray-50,
+html:is([data-theme="dark"],[data-theme="medium"]) .border-gray-100{ border-color: var(--c-b100) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .border-gray-200{ border-color: var(--c-b200) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .border-gray-300{ border-color: var(--c-b300) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .divide-gray-100 > :not([hidden]) ~ :not([hidden]){ border-color: var(--c-b100) !important; }
+
+html:is([data-theme="dark"],[data-theme="medium"]) .hover\:bg-gray-50:hover { background-color: var(--c-100) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .hover\:bg-gray-100:hover{ background-color: var(--c-200) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .hover\:text-gray-900:hover,
+html:is([data-theme="dark"],[data-theme="medium"]) .hover\:text-gray-800:hover,
+html:is([data-theme="dark"],[data-theme="medium"]) .hover\:text-gray-700:hover{ color: var(--c-900) !important; }
+
+/* Brand tints that would be too bright on dark. */
+html:is([data-theme="dark"],[data-theme="medium"]) .bg-brand-50  { background-color: var(--c-brand50) !important; }
+html:is([data-theme="dark"],[data-theme="medium"]) .text-brand-900{ color: var(--c-brand900) !important; }
+
+/* Form controls inherit the surface so inputs aren't blinding white. */
+html:is([data-theme="dark"],[data-theme="medium"]) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html:is([data-theme="dark"],[data-theme="medium"]) textarea,
+html:is([data-theme="dark"],[data-theme="medium"]) select {
+  background-color: var(--c-surface);
+  color: var(--c-text);
+}
+html:is([data-theme="dark"],[data-theme="medium"]) ::placeholder { color: var(--c-400); }
+html:is([data-theme="dark"],[data-theme="medium"]) input[type="checkbox"],
+html:is([data-theme="dark"],[data-theme="medium"]) input[type="radio"] { accent-color: #B45309; }
+
+
