@@ -48,8 +48,8 @@ export default function ShopLoginPage() {
         <div className="text-center mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/auto1-logo.png"
-            alt="Auto 1 Oil"
+            src="/brand/stallion-logo.svg"
+            alt="Stallion"
             className="h-16 w-auto mx-auto mb-3"
           />
           <p className="text-sm text-gray-500">Customer ordering</p>
@@ -134,7 +134,7 @@ export default function ShopLoginPage() {
           New customer? <Link href="/shop/signup" className="text-brand-700 font-medium hover:underline">Create an account</Link>
         </p>
         <p className="text-xs text-center text-gray-400 mt-4">
-          Auto 1 Oil employee? <Link href="/login" className="hover:underline">Sign in here</Link>
+          Stallion employee? <Link href="/login" className="hover:underline">Sign in here</Link>
         </p>
       </div>
     </div>

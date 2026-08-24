@@ -63,11 +63,11 @@ export default function CustomerNavBar({ email }: { email: string }) {
   return (
     <header className="bg-brand-900 text-white relative sticky top-0 z-40">
       <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-        <Link href="/shop" className="shrink-0 inline-flex items-center" aria-label="Auto 1 Oil — Shop">
+        <Link href="/shop" className="shrink-0 inline-flex items-center" aria-label="Stallion — Shop">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/auto1-logo.png"
-            alt="Auto 1 Oil"
+            src="/brand/stallion-logo.svg"
+            alt="Stallion"
             className="h-9 w-auto bg-white px-2 py-1 rounded"
           />
         </Link>

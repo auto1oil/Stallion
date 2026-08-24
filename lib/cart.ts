@@ -50,7 +50,7 @@ export function sizeLabel(containerSize: string): string {
   return `${containerSize} — ${brandFor(containerSize)}`;
 }
 
-const CART_KEY = 'auto1-shop-cart-v1';
+const CART_KEY = 'stallion-shop-cart-v1';
 
 export function loadCart(): CartItem[] {
   if (typeof window === 'undefined') return [];
@@ -66,7 +66,7 @@ export function loadCart(): CartItem[] {
 
 /** Custom event name fired whenever the cart changes — listeners (e.g. the
  *  cart-icon badge in CustomerNavBar) react in real time without polling. */
-export const CART_CHANGED_EVENT = 'auto1-cart-changed';
+export const CART_CHANGED_EVENT = 'stallion-cart-changed';
 
 function fireCartChanged() {
   if (typeof window === 'undefined') return;

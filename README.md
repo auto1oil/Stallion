@@ -1,231 +1,146 @@
-# Auto1 Oil Dispatch — Setup Guide
+# Stallion — Field Tickets
 
-Hi Cody. This is the complete setup guide for the dispatch app. Total time:
-about 30 minutes if nothing goes weird. Each step has a screenshot description
-so you know what you're looking for.
+A field-ticket / work-order app for a hauling contractor. Crews fill out a
+ticket on the job, the office audits and invoices it, the contractor signs off
+on their crews' hours, and the funder approves funds — replacing the
+email-the-ticket → key-it-into-a-spreadsheet → email-for-funding loop.
 
-If you get stuck on any step, paste the error message back to me in chat and
-I'll get you unstuck.
-
----
-
-## What you're building
-
-A web app at a URL like `auto1-oil-dispatch.vercel.app` that you and your team
-can log into from any computer or phone.
-
-User roles:
-- **master_admin** — you. Full access, including deleting delivery log entries.
-- **admin** — Jason, Dallin, Asa, Kenna. Manage orders, hours, users, fuel prices.
-- **salesman** — Jed, Mark, Shelby, Black. Log customer visits from the field,
-  text end-of-day summaries to admins.
-- **driver** — default for new signups. See orders, mark delivered, upload
-  signed invoices, log hours.
+Built on Next.js (App Router) + Supabase (Postgres, RLS, Storage) + Vercel,
+installable as a PWA, with QuickBooks Online for customer invoicing.
 
 ---
 
-## Before you start
+## The flow
 
-You need three free accounts. Sign up for these in any order:
+```
+crew fills ticket  →  office audits + approves  →  funder approves funds
+   /tickets              /work-orders                  /funder
+   photo of the          edits anything off,           per-job truck count,
+   paper ticket,         invoices the customer         approve funds
+   FSR signature         in QuickBooks
 
-1. **GitHub** — github.com — free, just an email + password
-2. **Supabase** — supabase.com — sign in with GitHub (one click)
-3. **Vercel** — vercel.com — sign in with GitHub (one click)
-
-Done? Good. Here we go.
-
----
-
-## Step 1 — Install Node.js on your Mac (5 min)
-
-This lets your Mac run the build commands.
-
-1. Go to **nodejs.org**
-2. Download the "LTS" version (the green button on the left)
-3. Open the downloaded `.pkg` file and click through the installer
-4. Open **Terminal** (Cmd+Space, type "Terminal", hit Enter)
-5. Type `node --version` and hit Enter. You should see something like `v20.x.x`
-
-If you see a version number, you're good.
-
----
-
-## Step 2 — Set up Supabase (10 min)
-
-This is your database and login system.
-
-1. Go to **supabase.com** and click "Start your project"
-2. Click "New project"
-3. Fill in:
-   - Name: `auto1-oil-dispatch`
-   - Database password: **make a strong one and save it somewhere** (you
-     won't need it for normal use, but you might need it later)
-   - Region: pick **West US (Oregon)** — closest to Utah
-4. Click "Create new project". Wait ~2 min for it to spin up.
-
-### Step 2a — Run the database setup SQL
-
-This single file sets up every table, every RLS policy, every trigger,
-and the `invoices` storage bucket. Safe to re-run.
-
-1. In Supabase, click the **SQL Editor** icon on the left (looks like `</>`)
-2. Click "New query"
-3. Open the file `supabase-setup.sql` from this project folder
-4. Copy ALL of it, paste into the SQL editor
-5. Click "Run" (bottom right). You should see "Success. No rows returned."
-
-If for some reason it complains about creating the bucket, do it manually:
-**Storage → New bucket → name = `invoices` → Public unchecked → Save.**
-Then re-run the SQL.
-
-### Step 2b — Get your API keys
-
-1. Click the **Settings** icon (gear, bottom left)
-2. Click "API" in the settings menu
-3. You'll see two values you need to copy somewhere safe:
-   - **Project URL** — looks like `https://abcdefg.supabase.co`
-   - **anon public** key — long string starting with `eyJ...`
-
-Save these two in a note for the next step.
-
-### Step 2c — Create your first admin user (you)
-
-1. Click **Authentication** on the left
-2. Click "Add user" → "Create new user"
-3. Enter your email and a password
-4. **IMPORTANT**: Check the "Auto Confirm User" box
-5. Click "Create user"
-6. Now go to **SQL Editor** → New query, and run this (replace your email):
-   ```sql
-   update public.profiles
-   set role = 'master_admin',
-       full_name = 'Cody',
-       phone = '+18015551234'
-   where email = 'YOUR-EMAIL@example.com';
-   ```
-7. Click Run.
-
-You're now a master_admin. The phone number is used for the salesman
-end-of-day SMS summary — store it in `+1` country-code format.
-
-You can repeat this process for other admins/drivers/salesmen later
-(replace `role = 'master_admin'` with `'admin'`, `'driver'`, or `'salesman'`).
-
----
-
-## Step 3 — Push the project to GitHub (5 min)
-
-1. Go to **github.com** and click the "+" in the top right → "New repository"
-2. Repository name: `auto1-oil-dispatch`
-3. Set to **Private**
-4. Don't check any of the "Initialize" boxes
-5. Click "Create repository"
-6. GitHub now shows you a page with commands. Keep this tab open.
-
-In Terminal, navigate to the project folder (drag the folder into Terminal
-after typing `cd `, then hit Enter), then run:
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/auto1-oil-dispatch.git
-git push -u origin main
+                    contractor signs off on their crews' hours
+                              /contractor
 ```
 
-(Replace `YOUR-USERNAME` with your actual GitHub username.)
+A ticket moves `draft → submitted → office_approved → funds_approved →
+invoiced` (or `rejected`, which sends it back to the crew with a reason).
+Hours and dollars are always recomputed from the row — start/stop plus travel
+and down time, times the rate (or tonnage × rate on a tonnage job) — never
+typed in and trusted.
 
-If git asks you to log in, follow the prompts. GitHub has switched to using
-"Personal Access Tokens" instead of passwords — if you hit that wall, tell me
-and I'll walk you through it.
+## Roles
 
----
+| Role | Sees | Can |
+| --- | --- | --- |
+| `driver` | `/tickets` | Fill out, photograph and submit field tickets |
+| `office` | `/work-orders` | Review, edit, approve, invoice in QuickBooks |
+| `contractor` | `/contractor` | Their crews' tickets, hours, rates; sign off; upload short tickets |
+| `funder` | `/funder` | Every order, truck count per job, approve funds |
+| `admin` / `master_admin` | everything | Full access, users, settings |
+| `mechanic` / `labor` | time clock | Clock in/out, tasks, reminders |
+| `customer` | `/shop` | The customer-facing ordering side |
 
-## Step 4 — Deploy to Vercel (5 min)
-
-1. Go to **vercel.com**, sign in with GitHub
-2. Click "Add New" → "Project"
-3. Find `auto1-oil-dispatch` in your repo list, click "Import"
-4. **Environment Variables** section — add these two:
-   - `NEXT_PUBLIC_SUPABASE_URL` = (your Project URL from step 2b)
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = (your anon public key from step 2b)
-5. Click "Deploy"
-6. Wait ~2 min. When done you'll get a URL like
-   `auto1-oil-dispatch-abc123.vercel.app`
-
----
-
-## Step 5 — Try it out
-
-1. Go to your Vercel URL
-2. Sign in with the email + password you created in step 2c
-3. You should land on the admin orders page
-
-Click "+ New order" and create a test order. Confirm it shows up.
+Approvals never go through the browser's own write path: every status move
+posts to `/api/work-orders/[id]/approve`, which checks the caller's role and
+writes only that role's approval columns with the service role. RLS decides
+who can see a row; the route decides which columns they can touch.
 
 ---
 
-## Step 6 — Add your team
+## Setup
 
-For each person who needs access:
+You need three free accounts: **GitHub**, **Supabase**, and **Vercel**, plus
+an **Intuit developer** account for QuickBooks invoicing.
 
-1. **Supabase** → Authentication → Add user → Create new user
-2. Use their email, set a temporary password, check "Auto Confirm"
-3. Send them their email + temporary password
-4. Tell them to sign in at your Vercel URL and change their password under
-   their account
-5. In Supabase SQL Editor, set their role (drivers can skip this — `driver`
-   is the default):
-   ```sql
-   -- For an admin (e.g. Jason)
-   update public.profiles
-   set role = 'admin', full_name = 'Jason', phone = '+18015551234'
-   where email = 'jason@example.com';
+### 1 — Supabase
 
-   -- For a salesman (e.g. Jed)
-   update public.profiles
-   set role = 'salesman', full_name = 'Jed'
-   where email = 'jed@example.com';
-   ```
+1. supabase.com → New project. Pick the region closest to your crews.
+2. **SQL Editor → New query** → paste all of `supabase-setup.sql` → Run.
+   It creates every table, policy, trigger, and the `invoices` and
+   `work-tickets` storage buckets. The whole file is safe to re-run.
+   If bucket creation is blocked, create them by hand under **Storage**
+   (both private, named `invoices` and `work-tickets`) and re-run.
+3. **Settings → API** — copy the **Project URL** and the **anon public** key,
+   and the **service_role** key (server-only; it never goes near the browser).
 
-**Tip:** admin phone numbers are used as the recipients of the salesman
-end-of-day SMS summary. Salesmen don't need a phone on file.
+### 2 — Your first admin
+
+**Authentication → Add user → Create new user**, tick *Auto Confirm User*,
+then in the SQL editor:
+
+```sql
+update public.profiles
+set role = 'master_admin', full_name = 'Your Name'
+where email = 'you@example.com';
+```
+
+Everyone else you add from **Users** inside the app.
+
+### 3 — Vercel
+
+Import the repo, then set the environment variables from
+`.env.local.example`:
+
+| Variable | What it is |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server only) |
+| `NEXT_PUBLIC_SITE_URL` | Your deployed URL, e.g. `https://stallion.vercel.app` |
+| `CRON_SECRET` | Any long random string — guards the cron routes |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web-push keys (`npx web-push generate-vapid-keys`) |
+| `VAPID_SUBJECT` | `mailto:` address for push |
+| `QUICKBOOKS_CLIENT_ID` / `QUICKBOOKS_CLIENT_SECRET` | From your Intuit app |
+| `QUICKBOOKS_REDIRECT_URI` | `<your URL>/api/quickbooks/callback` |
+| `QUICKBOOKS_ENV` | `sandbox` or `production` |
+| `EIA_API_KEY` | Optional — weekly diesel price for the trucking surcharge |
+
+### 4 — QuickBooks
+
+Sign in as an admin → **Settings → QuickBooks → Connect**, then
+**Work Orders → Setup** and pick the QuickBooks item every approved ticket
+bills against (hours or tonnage × the ticket's rate post to that item). Add
+your job rates on the same screen — the ticket form offers the matching rate
+to the crew, and contractors see them on their Rates tab.
+
+### 5 — Brand it
+
+`public/brand/stallion-logo.svg` and `stallion-mark.svg` are placeholders —
+drop in the real artwork under the same names. The colour palette lives in
+`tailwind.config.js` (`brand` = buttons and headers, `accent` = the stripe).
+The app name is in `app/layout.tsx` and `public/manifest.webmanifest`.
 
 ---
 
-## Custom domain (optional, anytime later)
+## Converting an existing Auto 1 Dispatch project
 
-Want it to live at `dispatch.auto1oil.com` instead of the vercel.app URL?
-Vercel → your project → Settings → Domains. Add the domain, follow the DNS
-instructions. ~$15/yr for the domain if you don't already own one.
+If you're pointing this at a Supabase project that already ran the old Auto 1
+schema, run `migrations/001-drop-removed-features.sql` **after** deploying this
+code. It drops the salesman, fuel, inventory, bills, and card-charge tables,
+moves any remaining `salesman` users to `office`, and widens the role check to
+include `contractor` and `funder`. On a fresh project it is a no-op.
 
----
+## Repo map
 
-## When stuff breaks
+| Path | What's in it |
+| --- | --- |
+| `app/tickets` | The crew's screens |
+| `app/work-orders` | The office's queue, ticket review, setup |
+| `app/contractor` | Contractor work orders, approvals, rates |
+| `app/funder` | Funder orders + approve funds |
+| `app/api/work-orders` | Ticket CRUD, approvals, invoicing |
+| `lib/work-orders.ts` | Hour/amount math and the QuickBooks invoice routine |
+| `lib/quickbooks*.ts` | QuickBooks OAuth, customers, invoices, PDFs |
+| `supabase-setup.sql` | The canonical, re-runnable schema |
+| `migrations/` | One-off migrations for existing projects |
 
-- **"Can't sign in"** — double-check the user is "Confirmed" in Supabase
-  Authentication
-- **"Page just shows loading"** — usually a Supabase env var typo. Check
-  Vercel → Settings → Environment Variables
-- **"Driver can see admin pages"** — the `profiles.role` field for that user
-  is set to `admin` in the database. Update it to `driver`.
-- **"Anything else"** — paste the error to me in chat
+## Local development
 
----
+```bash
+npm install
+cp .env.local.example .env.local   # fill in your values
+npm run dev
+```
 
-## What's NOT in this version (Phase 2 ideas)
-
-These are easy to add later:
-- QuickBooks integration (auto-pull invoice numbers)
-- Push/SMS notifications when orders are assigned (current SMS is salesman-
-  triggered only — admin-triggered SMS would need a provider like Twilio)
-- Automatic end-of-day SMS (currently the salesman taps Send themselves —
-  could be cron-driven via Vercel + Twilio)
-- Customer signature email receipts
-- Mileage/fuel-use tracking per truck
-- Inventory tracking for PCMO loads
-
-We talked about phasing it. Get this one running, use it for a few weeks,
-and we'll layer on whatever proves useful.
-
+Before pushing: `npx tsc --noEmit && npm run build`.

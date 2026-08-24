@@ -105,7 +105,7 @@ export default function SupportChatWidget() {
       {open && (
         <div className="fixed bottom-4 right-4 z-50 w-[92vw] max-w-sm bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col" style={{ height: 'min(70vh, 520px)' }}>
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-brand-700 text-white rounded-t-xl">
-            <span className="font-semibold text-sm">Chat with Auto 1 Oil</span>
+            <span className="font-semibold text-sm">Chat with Stallion</span>
             <button onClick={() => setOpen(false)} className="text-white/80 hover:text-white text-xl leading-none">×</button>
           </div>
 
@@ -138,7 +138,7 @@ export default function SupportChatWidget() {
                 {messages.length === 0 && <p className="text-center text-xs text-gray-400 mt-4">Send a message and we&apos;ll reply here.</p>}
                 {messages.map((m) => (
                   <div key={m.id} className={`flex flex-col ${m.from_guest ? 'items-end' : 'items-start'}`}>
-                    {!m.from_guest && <span className="text-[10px] text-gray-500 mb-0.5">{m.sender_name || 'Auto 1 Oil'}</span>}
+                    {!m.from_guest && <span className="text-[10px] text-gray-500 mb-0.5">{m.sender_name || 'Stallion'}</span>}
                     <div className={`px-3 py-2 rounded-2xl text-sm max-w-[80%] whitespace-pre-wrap break-words ${
                       m.from_guest ? 'bg-brand-700 text-white rounded-br-sm' : 'bg-gray-100 text-gray-900 rounded-bl-sm'}`}>
                       {m.body}

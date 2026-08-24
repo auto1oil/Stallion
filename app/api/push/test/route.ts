@@ -30,7 +30,7 @@ export async function POST() {
   for (const s of subs) {
     try {
       await sendToSubscription(s, {
-        title: 'Auto 1 Oil',
+        title: 'Stallion',
         body: 'Push notifications are working on this device. 🎉',
         url: '/settings',
         tag: 'test',

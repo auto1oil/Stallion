@@ -1,24 +1,18 @@
 {
-  "name": "Auto 1 Oil Dispatch",
-  "short_name": "Auto 1 Oil",
-  "description": "Order tracking, dispatch, and delivery management for Auto 1 Oil Company.",
+  "name": "Stallion Field Tickets",
+  "short_name": "Stallion",
+  "description": "Field tickets, approvals, and invoicing for hauling crews.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#0b3a8a",
+  "theme_color": "#0F3D5C",
   "icons": [
     {
-      "src": "/brand/auto1-circle.png",
-      "sizes": "270x270",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/brand/auto1-circle.png",
-      "sizes": "192x192 512x512",
-      "type": "image/png",
+      "src": "/brand/stallion-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

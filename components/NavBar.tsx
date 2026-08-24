@@ -142,17 +142,17 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
 
   return (
     <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
-      {/* yellow accent stripe at the top — Auto 1 Oil brand touch */}
+      {/* yellow accent stripe at the top — Stallion brand touch */}
       <div className="h-1 bg-accent-400" />
 
       <div className="max-w-5xl mx-auto px-4">
         {/* Row 1 — logo on the left, bell + email + sign out on the right. */}
         <div className="flex items-center justify-between py-3 gap-3">
-          <Link href="/" className="shrink-0 inline-flex items-center" aria-label="Auto 1 Oil — Home">
+          <Link href="/" className="shrink-0 inline-flex items-center" aria-label="Stallion — Home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/auto1-logo.png"
-              alt="Auto 1 Oil"
+              src="/brand/stallion-logo.svg"
+              alt="Stallion"
               className="h-9 w-auto"
             />
           </Link>

@@ -154,7 +154,7 @@ export default function InviteRedeemPage() {
       <div className="w-full max-w-md bg-white rounded-lg border border-gray-200 p-8">
         <div className="text-center mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/auto1-logo.png" alt="Auto 1 Oil" className="h-16 w-auto mx-auto mb-3" />
+          <img src="/brand/stallion-logo.svg" alt="Stallion" className="h-16 w-auto mx-auto mb-3" />
           <p className="text-sm text-gray-500">You&apos;ve been invited to join</p>
           <h1 className="text-xl font-semibold mt-1">{invite.business_name}</h1>
           {invite.business_address && (

@@ -7,26 +7,27 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Auto 1 Oil brand: gold/amber primary, red as secondary accent.
-        // Gold buttons feel warmer than red, which can read as "warning."
+        // Stallion: deep steel blue primary (headers, buttons), warm gold as
+        // the accent stripe and highlight. Swap these for the real brand
+        // palette — every screen reads its colors from here.
         brand: {
-          50:  '#FEF3C7',  // very light gold tint
-          100: '#FDE68A',
-          200: '#FCD34D',
-          300: '#FBBF24',
-          400: '#F8A80A',
-          500: '#F59E0B',  // mid amber
-          600: '#D97706',  // gold CTA (used app-wide, e.g. the Add buttons)
-          700: '#B45309',  // primary CTA gold (good contrast w/ white text)
-          800: '#92400E',
-          900: '#78350F',  // dark amber — header backgrounds
+          50:  '#E8F0F6',  // very light blue tint
+          100: '#C7DBE9',
+          200: '#9CBFD6',
+          300: '#6F9FC0',
+          400: '#4A83AA',
+          500: '#2E6B95',
+          600: '#1C557C',
+          700: '#0F3D5C',  // primary CTA (good contrast with white text)
+          800: '#0B2F47',
+          900: '#071F30',  // dark header backgrounds
         },
         accent: {
-          50:  '#FEF2F2',  // light red tint
-          300: '#FCA5A5',  // light red text
-          400: '#EF4444',
-          500: '#DC2626',  // red highlight (stripes, danger chips)
-          700: '#B91C1C',
+          50:  '#FDF6E7',  // light gold tint
+          300: '#F0CE86',
+          400: '#E0A83C',  // the stripe across the top of the nav
+          500: '#C88F26',
+          700: '#9A6C15',
         },
       },
     },

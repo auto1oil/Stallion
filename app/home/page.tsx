@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import MarketingNav from '@/components/MarketingNav';
 
-export const metadata = { title: 'Auto 1 Oil' };
+export const metadata = { title: 'Stallion' };
 
-// Public marketing home. Placeholder copy — replace the TODO(content) text with
-// the real auto1oil.com homepage content.
+// Public marketing home — the only page a logged-out visitor lands on.
+// Placeholder copy: replace the TODO(content) text and the contact block with
+// the real business details before launch.
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
@@ -14,23 +15,20 @@ export default function HomePage() {
       <section className="bg-brand-900 text-white">
         <div className="max-w-5xl mx-auto px-4 py-16 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/auto1-logo.png" alt="Auto 1 Oil" className="h-14 w-auto mx-auto mb-6 bg-white px-3 py-2 rounded" />
-          <h1 className="text-3xl sm:text-4xl font-bold">Auto 1 Oil Company</h1>
+          <img src="/brand/stallion-logo.svg" alt="Stallion" className="h-14 w-auto mx-auto mb-6 bg-white px-3 py-2 rounded" />
+          <h1 className="text-3xl sm:text-4xl font-bold">Stallion</h1>
           <p className="mt-3 text-brand-50 max-w-2xl mx-auto">
-            A state-of-the-art oil, fuel, DEF, and trucking distributor based in Lehi, Utah —
-            top-tier lubricants at market-competitive prices.
+            {/* TODO(content): the real one-line description of the business. */}
+            Hauling and site work, with every day&apos;s ticket filed, approved, and
+            invoiced the same day it&apos;s worked.
           </p>
           <div className="mt-6 flex gap-3 justify-center flex-wrap">
-            <Link href="/products" className="px-5 py-2.5 bg-accent-400 text-brand-900 rounded-md font-semibold hover:bg-accent-500">
-              View products
+            <Link href="/login" className="px-5 py-2.5 bg-accent-400 text-brand-900 rounded-md font-semibold hover:bg-accent-500">
+              Crew &amp; staff sign in
             </Link>
             <Link href="/shop/login" className="px-5 py-2.5 bg-white text-brand-900 rounded-md font-semibold hover:bg-gray-100">
-              Order products →
+              Customer login
             </Link>
-          </div>
-          <div className="mt-3 flex gap-4 justify-center text-sm">
-            <Link href="/shop/login" className="text-white/90 hover:text-white underline">Customer login</Link>
-            <Link href="/login" className="text-white/90 hover:text-white underline">Staff login</Link>
           </div>
         </div>
       </section>
@@ -40,24 +38,23 @@ export default function HomePage() {
         <section>
           <h2 className="text-2xl font-bold text-brand-900 mb-3">About us</h2>
           <p className="text-gray-700 max-w-3xl">
-            Auto 1 Oil is a state-of-the-art distribution company in Lehi, Utah, focused on
-            lubrication excellence — bringing top-tier oil, fuel, DEF, coolant, and wash
-            products to businesses at market-competitive prices. We follow the West Texas
-            Index and adjust pricing quarterly to stay competitive.
+            {/* TODO(content): the real About copy. */}
+            Stallion runs hauling crews and equipment on job sites, billing by the
+            hour or the ton against the phase codes each job is set up under.
           </p>
         </section>
 
-        {/* Services */}
+        {/* How the paperwork works */}
         <section>
-          <h2 className="text-2xl font-bold text-brand-900 mb-4">What we offer</h2>
+          <h2 className="text-2xl font-bold text-brand-900 mb-4">How a day gets billed</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              ['Fuel & DEF', 'Fuel and diesel exhaust fluid delivery for fleets and equipment.'],
-              ['Oils & lubricants', 'A full line of motor oils, gear oils, hydraulics, and grease.'],
-              ['Coolant & wash', 'Coolants and wash products to round out your shop.'],
-              ['Trucking', 'In-house trucking and dependable delivery.'],
-              ['Market pricing', 'Quarterly pricing tied to the West Texas Index.'],
-              ['Data sheets', 'Product (PDS) and Safety (SDS) data sheets for every product.'],
+              ['1 · The crew files it', 'The operator fills out the field ticket on the job — times, tonnage, unit — and photographs the paper ticket.'],
+              ['2 · The office audits it', 'The office checks the ticket against the photo, fixes anything off, and approves.'],
+              ['3 · The customer is invoiced', 'Approval raises the QuickBooks invoice the same minute, with the hours and rate already on it.'],
+              ['Contractors sign off', 'Each contractor sees their crews’ days and hours and approves their own portion.'],
+              ['Funding follows the ticket', 'The funder sees every order and the trucks on each job, and approves funds without an email chain.'],
+              ['Nothing gets re-keyed', 'One ticket, one set of numbers, from the job site to the invoice.'],
             ].map(([t, d]) => (
               <div key={t} className="bg-white border border-gray-200 rounded-lg p-4">
                 <h3 className="font-semibold text-gray-900">{t}</h3>
@@ -79,8 +76,8 @@ export default function HomePage() {
 
       <footer className="border-t border-gray-200 bg-white">
         <div className="max-w-5xl mx-auto px-4 py-6 text-sm text-gray-500 flex items-center justify-between flex-wrap gap-2">
-          <span>© {new Date().getFullYear()} Auto 1 Oil Company</span>
-          <Link href="/shop/login" className="text-brand-700 hover:underline">Customer login</Link>
+          <span>© {new Date().getFullYear()} Stallion</span>
+          <Link href="/login" className="text-brand-700 hover:underline">Staff sign in</Link>
         </div>
       </footer>
     </div>

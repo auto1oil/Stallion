@@ -37,10 +37,10 @@ export default function LoginPage() {
   async function shareApp() {
     const url = typeof window !== 'undefined'
       ? `${window.location.origin}/shop/signup`
-      : 'https://app.auto1oil.com/shop/signup';
+      : 'https://app.stallionfieldtickets.com/shop/signup';
     const data = {
-      title: 'Auto 1 Oil',
-      text: 'Order fuel & oil and track deliveries with Auto 1 Oil. Sign up here:',
+      title: 'Stallion',
+      text: 'Order fuel & oil and track deliveries with Stallion. Sign up here:',
       url,
     };
     try {
@@ -77,12 +77,12 @@ export default function LoginPage() {
         <div className="text-center mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/auto1-logo.png"
-            alt="Auto 1 Oil"
+            src="/brand/stallion-logo.svg"
+            alt="Stallion"
             className="h-16 w-auto mx-auto mb-3"
           />
           <p className="text-sm text-gray-500">
-            {mode === 'choose' ? 'Auto 1 Oil' : mode === 'forgot' ? 'Reset password' : 'Staff sign in'}
+            {mode === 'choose' ? 'Stallion' : mode === 'forgot' ? 'Reset password' : 'Staff sign in'}
           </p>
         </div>
 

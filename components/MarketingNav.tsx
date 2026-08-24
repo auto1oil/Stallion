@@ -24,13 +24,12 @@ export default function MarketingNav() {
     <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
       <div className="h-1 bg-accent-400" />
       <div className="max-w-5xl mx-auto px-4 flex items-center justify-between gap-3 py-3">
-        <Link href="/home" className="shrink-0 inline-flex items-center" aria-label="Auto 1 Oil — Home">
+        <Link href="/home" className="shrink-0 inline-flex items-center" aria-label="Stallion — Home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/auto1-logo.png" alt="Auto 1 Oil" className="h-9 w-auto" />
+          <img src="/brand/stallion-logo.svg" alt="Stallion" className="h-9 w-auto" />
         </Link>
         <nav className="flex items-center gap-1 flex-wrap justify-end">
           {link('/home', 'Home')}
-          {link('/products', 'Products')}
           <Link
             href="/shop/login"
             className="ml-1 px-3 py-1.5 text-sm rounded-md border border-brand-700 text-brand-700 font-medium hover:bg-brand-50 whitespace-nowrap"

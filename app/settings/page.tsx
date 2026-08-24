@@ -14,6 +14,7 @@ type Prefs = {
   new_order: boolean;
   order_status: boolean;
   new_customer: boolean;
+  work_order: boolean;
   task: boolean;
 };
 
@@ -21,6 +22,7 @@ const PREF_COL: Record<keyof Prefs, string> = {
   new_order: 'notify_on_new_order',
   order_status: 'notify_on_order_status',
   new_customer: 'notify_on_new_customer',
+  work_order: 'notify_on_work_order',
   task: 'notify_on_task',
 };
 
@@ -28,6 +30,7 @@ const PREF_LABEL: { key: keyof Prefs; title: string; desc: string }[] = [
   { key: 'new_order',     title: 'New orders',        desc: 'When a new order is placed.' },
   { key: 'order_status',  title: 'Order status',      desc: 'When an order moves to out for delivery or delivered.' },
   { key: 'new_customer',  title: 'New customers',     desc: 'When a new customer signs up and needs approval.' },
+  { key: 'work_order',    title: 'Work orders',       desc: 'When a ticket is submitted, approved, or sent back.' },
   { key: 'task',          title: 'Tasks',             desc: 'When you are assigned a task.' },
 ];
 
@@ -98,7 +101,7 @@ export default function SettingsPage() {
 
       const { data } = await supabase
         .from('profiles')
-        .select('role, full_name, email, avatar_url, message_alert_mode, notify_on_new_order, notify_on_order_status, notify_on_new_customer, notify_on_task')
+        .select('role, full_name, email, avatar_url, message_alert_mode, notify_on_new_order, notify_on_order_status, notify_on_new_customer, notify_on_work_order, notify_on_task')
         .eq('id', user.id)
         .single();
       const p = data as (Record<string, boolean | null> & { role?: string; full_name?: string | null; email?: string | null; avatar_url?: string | null; message_alert_mode?: AlertMode }) | null;
@@ -110,6 +113,7 @@ export default function SettingsPage() {
         new_order:     p?.notify_on_new_order ?? true,
         order_status:  p?.notify_on_order_status ?? true,
         new_customer:  p?.notify_on_new_customer ?? true,
+        work_order:    p?.notify_on_work_order ?? true,
         task:          p?.notify_on_task ?? true,
       });
     })();

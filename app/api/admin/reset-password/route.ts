@@ -13,8 +13,8 @@ import { createAdminClient } from '@/lib/supabase-admin';
 export const runtime = 'nodejs';
 
 function tempPassword(): string {
-  // Readable temp password, e.g. "Auto1-7gk2qd".
-  return `Auto1-${Math.random().toString(36).slice(2, 8)}`;
+  // Readable temp password, e.g. "Stallion-7gk2qd".
+  return `Stallion-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export async function POST(req: Request) {

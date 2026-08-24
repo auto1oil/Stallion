@@ -76,13 +76,13 @@ export default function AdminCustomerOrdersPage() {
 
   async function holdAndEmail(profileId: string, email: string, name: string, missing: string[]) {
     await supabase.from('profiles').update({ on_hold: true }).eq('id', profileId);
-    const subject = encodeURIComponent('Auto 1 Oil — documents needed to finish setting up your account');
+    const subject = encodeURIComponent('Stallion — documents needed to finish setting up your account');
     const body = encodeURIComponent(
-      `Hi ${name},\n\nThanks for signing up with Auto 1 Oil. Before we can finish setting up your account, ` +
+      `Hi ${name},\n\nThanks for signing up with Stallion. Before we can finish setting up your account, ` +
       `we still need the following:\n\n${missing.map((m) => `• ${m}`).join('\n')}\n\n` +
-      `Please reply with these and we'll get you set up right away.\n\nThank you,\nAuto 1 Oil`,
+      `Please reply with these and we'll get you set up right away.\n\nThank you,\nStallion`,
     );
-    if (email && !email.endsWith('@auto1oil.local')) {
+    if (email && !email.endsWith('@stallion.local')) {
       window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
     } else {
       alert('Placed on hold. (No email on file to message this customer.)');

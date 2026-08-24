@@ -8,7 +8,7 @@
 // Required Vercel env vars:
 //   - QUICKBOOKS_CLIENT_ID
 //   - QUICKBOOKS_CLIENT_SECRET
-//   - QUICKBOOKS_REDIRECT_URI  (e.g. https://auto1oil.vercel.app/api/quickbooks/callback)
+//   - QUICKBOOKS_REDIRECT_URI  (e.g. https://stallion.vercel.app/api/quickbooks/callback)
 //
 // Never import this from a client component — refresh tokens must not be
 // shipped to the browser.
@@ -1525,7 +1525,7 @@ export async function syncQbCustomersByIds(
       await db.from('profiles').update({
         business_name: businessName,
         full_name: fullName,
-        email: email ?? `qb-${c.Id}@auto1oil.local`,
+        email: email ?? `qb-${c.Id}@stallion.local`,
         phone, address,
       }).eq('id', byLink.id);
       await db.from('customer_qb_mapping').upsert({
@@ -1565,7 +1565,7 @@ export async function syncQbCustomersByIds(
     const newId = randomUUID();
     const { error: insErr } = await db.from('profiles').insert({
       id: newId,
-      email: email ?? `qb-${c.Id}@auto1oil.local`,
+      email: email ?? `qb-${c.Id}@stallion.local`,
       full_name: fullName,
       business_name: businessName,
       phone, address,

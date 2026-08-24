@@ -9,24 +9,24 @@ import FloatingButton from '@/components/FloatingButton';
 import LocationReporter from '@/components/LocationReporter';
 
 export const metadata: Metadata = {
-  title: 'Auto1 Oil Dispatch',
+  title: 'Stallion Field Tickets',
   description: 'Order tracking and delivery management',
   manifest: '/manifest.webmanifest',
   // iOS "Add to Home Screen" treats this app as a standalone PWA (no
-  // Safari chrome) with the Auto 1 icon and our app title.
+  // Safari chrome) with the Stallion icon and our app title.
   appleWebApp: {
     capable: true,
-    title: 'Auto 1 Oil',
+    title: 'Stallion',
     statusBarStyle: 'default',
   },
   icons: {
-    icon: '/brand/auto1-circle.png',
-    apple: '/brand/auto1-circle.png',
+    icon: '/brand/stallion-mark.svg',
+    apple: '/brand/stallion-mark.svg',
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0b3a8a',
+  themeColor: '#0F3D5C',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

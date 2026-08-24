@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Stallion">
+  <rect width="512" height="512" rx="112" fill="#0F3D5C"/>
+  <path d="M150 372c46-30 70-76 70-130 0-30-14-52-14-74 0-24 22-38 52-38 46 0 84 30 100 76l22 60c8 30 22 52 46 68-38 22-84 30-130 30-52 0-104 4-146 8z" fill="#E0A83C"/>
+  <circle cx="242" cy="188" r="15" fill="#0F3D5C"/>
+</svg>

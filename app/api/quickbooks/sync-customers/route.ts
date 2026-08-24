@@ -175,7 +175,7 @@ export async function POST(req: Request) {
     // (a) already linked by QB id
     const linkedId = profileByQbId.get(c.Id);
     if (linkedId) {
-      updates.push({ id: linkedId, patch: { business_name: businessName, full_name: fullName, email: email ?? `qb-${c.Id}@auto1oil.local`, phone, address } });
+      updates.push({ id: linkedId, patch: { business_name: businessName, full_name: fullName, email: email ?? `qb-${c.Id}@stallion.local`, phone, address } });
       mapping.profile_id = linkedId; mappings.push(mapping);
       claimed.add(linkedId); updated++; continue;
     }
@@ -208,7 +208,7 @@ export async function POST(req: Request) {
 
     // (c) brand-new imported profile
     const newId = crypto.randomUUID();
-    inserts.push({ id: newId, email: email ?? `qb-${c.Id}@auto1oil.local`, full_name: fullName, business_name: businessName, phone, address, role: 'customer', imported_from_qb_customer_id: c.Id, must_change_password: false });
+    inserts.push({ id: newId, email: email ?? `qb-${c.Id}@stallion.local`, full_name: fullName, business_name: businessName, phone, address, role: 'customer', imported_from_qb_customer_id: c.Id, must_change_password: false });
     mapping.profile_id = newId; mappings.push(mapping);
     claimed.add(newId); created++;
   }

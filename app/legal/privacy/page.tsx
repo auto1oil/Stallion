@@ -1,7 +1,7 @@
 // Public privacy policy page. Used as the "Privacy Policy URL" in the
 // Intuit Developer Portal app submission. Plain HTML, no auth required.
 export const metadata = {
-  title: 'Privacy Policy — Auto 1 Oil',
+  title: 'Privacy Policy — Stallion',
 };
 
 export default function PrivacyPolicyPage() {
@@ -15,7 +15,7 @@ export default function PrivacyPolicyPage() {
 
         <section className="mb-8">
           <p className="text-sm leading-6">
-            Auto 1 Oil Company (&quot;Auto 1 Oil,&quot; &quot;we,&quot; &quot;us&quot;)
+            Stallion (&quot;Stallion,&quot; &quot;we,&quot; &quot;us&quot;)
             operates this customer ordering and dispatch application
             (the &quot;App&quot;) to make it easier for our customers and team
             to place and fulfill orders. This Privacy Policy explains what
@@ -44,7 +44,7 @@ export default function PrivacyPolicyPage() {
         <h2 className="text-lg font-semibold mt-6 mb-2">Information sharing</h2>
         <p className="text-sm leading-6 mb-3">We do not sell or rent your personal information. We share information only as needed to operate the App and serve you:</p>
         <ul className="list-disc pl-6 text-sm leading-6 space-y-1">
-          <li><strong>Intuit QuickBooks Online:</strong> when a customer places an order, we create or update a matching customer record and invoice in QuickBooks under your Auto 1 Oil account.</li>
+          <li><strong>Intuit QuickBooks Online:</strong> when a customer places an order, we create or update a matching customer record and invoice in QuickBooks under your Stallion account.</li>
           <li><strong>Service providers:</strong> we use Vercel for hosting and Supabase for database and authentication. These providers handle data on our behalf under their own privacy commitments.</li>
           <li><strong>Legal compliance:</strong> we may disclose information when required by law, subpoena, or to protect our rights or the safety of others.</li>
         </ul>
@@ -59,7 +59,7 @@ export default function PrivacyPolicyPage() {
         <p className="text-sm leading-6">
           All data is transmitted over HTTPS. Passwords are stored hashed.
           Customer documents are stored in a private, signed-URL bucket that
-          is only accessible to authenticated users and Auto 1 Oil staff.
+          is only accessible to authenticated users and Stallion staff.
           QuickBooks access tokens are stored encrypted at rest and never
           shared with end users.
         </p>
@@ -84,11 +84,13 @@ export default function PrivacyPolicyPage() {
 
         <h2 className="text-lg font-semibold mt-6 mb-2">Contact us</h2>
         <p className="text-sm leading-6">
-          Auto 1 Oil Company<br />
-          1325 E Main Street<br />
-          Lehi, UT 84043<br />
-          Phone: 801-766-8370<br />
-          Email: <a href="mailto:sales@auto1oil.com" className="text-brand-700 hover:underline">sales@auto1oil.com</a>
+          {/* TODO(content): the real registered business name, address,
+              phone and email before this page is published. */}
+          Stallion<br />
+          [Street address]<br />
+          [City, State ZIP]<br />
+          Phone: [phone]<br />
+          Email: <a href="mailto:office@example.com" className="text-brand-700 hover:underline">office@example.com</a>
         </p>
       </main>
     </div>

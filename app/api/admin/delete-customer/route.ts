@@ -38,11 +38,11 @@ export async function POST(req: Request) {
     if (target.role !== 'customer') {
       return NextResponse.json({ ok: false, error: 'only customer accounts can be deleted here' }, { status: 400 });
     }
-    // A QuickBooks-imported placeholder (synthetic qb-…@auto1oil.local login,
+    // A QuickBooks-imported placeholder (synthetic qb-…@stallion.local login,
     // never a real sign-in) can be removed by any admin — these are the
     // duplicate cards left behind after a merge. Deleting a real customer
     // (with a genuine login) stays master-admin-only.
-    const isPlaceholder = (target.email || '').endsWith('@auto1oil.local');
+    const isPlaceholder = (target.email || '').endsWith('@stallion.local');
     if (!isPlaceholder && !isMaster) {
       return NextResponse.json({ ok: false, error: 'Only a master admin can delete a real customer account. (This one has a real login.)' }, { status: 403 });
     }

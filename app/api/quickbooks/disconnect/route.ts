@@ -36,6 +36,6 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: `QuickBooks connection for realm ${realmId || 'unknown'} has been removed from Auto 1 Oil.`,
+    message: `QuickBooks connection for realm ${realmId || 'unknown'} has been removed from Stallion.`,
   });
 }

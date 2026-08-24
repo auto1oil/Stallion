@@ -224,7 +224,7 @@ export async function invoiceCustomerOrder(
             existing = cands.find((c) => (c.DisplayName || '').toLowerCase() === want) ?? null;
           }
         }
-        const realEmail = customer.email && !customer.email.endsWith('@auto1oil.local') ? customer.email : null;
+        const realEmail = customer.email && !customer.email.endsWith('@stallion.local') ? customer.email : null;
         const qbCust = existing ?? await createCustomer({
           displayName,
           email: realEmail,

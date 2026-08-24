@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:dispatch@auto1oil.com';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:dispatch@stallionfieldtickets.com';
 
 let configured = false;
 function ensureConfigured(): boolean {

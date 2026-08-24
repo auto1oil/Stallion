@@ -54,7 +54,7 @@ export default function ShopSignupPage() {
       return;
     }
     if (!customerType) {
-      setError('Please tell us if you already have an Auto 1 Oil account.');
+      setError('Please tell us if you already have an Stallion account.');
       return;
     }
     setStep(2);
@@ -275,8 +275,8 @@ export default function ShopSignupPage() {
         <div className="text-center mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/auto1-logo.png"
-            alt="Auto 1 Oil"
+            src="/brand/stallion-logo.svg"
+            alt="Stallion"
             className="h-16 w-auto mx-auto mb-3"
           />
           <p className="text-sm text-gray-500">
@@ -358,7 +358,7 @@ export default function ShopSignupPage() {
 
             <div className="pt-2">
               <label className="block text-sm font-medium mb-2">
-                Are you already an Auto 1 Oil customer?
+                Are you already an Stallion customer?
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button

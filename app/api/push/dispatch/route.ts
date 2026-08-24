@@ -28,7 +28,7 @@ export async function POST(req: Request) {
 
   const subs = body.subscriptions || [];
   const payload = {
-    title: body.payload?.title || 'Auto 1 Oil',
+    title: body.payload?.title || 'Stallion',
     body: body.payload?.body || undefined,
     url: body.payload?.url || '/',
     tag: body.payload?.tag || undefined,

@@ -688,7 +688,7 @@ export default function AdminCustomersPage() {
   // Placeholder addresses we mint for QB-imported customers without a real
   // inbox don't count as a real email on file.
   function hasRealEmail(email: string | null): boolean {
-    return !!email && !email.toLowerCase().endsWith('@auto1oil.local');
+    return !!email && !email.toLowerCase().endsWith('@stallion.local');
   }
 
   // A customer's file is complete when we have their profile sheet, the four
@@ -735,7 +735,7 @@ export default function AdminCustomersPage() {
     setEditForm({
       business_name: c.business?.name || c.business_name || '',
       full_name: c.full_name || '',
-      email: c.email?.endsWith('@auto1oil.local') ? '' : (c.email || ''),
+      email: c.email?.endsWith('@stallion.local') ? '' : (c.email || ''),
       phone: c.phone || '',
       address: c.address || '',
     });
@@ -1043,11 +1043,11 @@ export default function AdminCustomersPage() {
                   className={`w-full text-left px-4 py-3 ${inactive ? 'grayscale opacity-80 bg-gray-200 hover:bg-gray-300' : 'hover:bg-gray-50'}`}
                 >
                   {/* Payment terms + missing-documents badges at the top of the box */}
-                  {(terms || missing.length > 0 || inactive || (c.email || '').toLowerCase().endsWith('@auto1oil.com')) && (
+                  {(terms || missing.length > 0 || inactive || (c.email || '').toLowerCase().endsWith('@stallionfieldtickets.com')) && (
                     <div className="mb-1 flex flex-wrap gap-1">
-                      {(c.email || '').toLowerCase().endsWith('@auto1oil.com') && (
+                      {(c.email || '').toLowerCase().endsWith('@stallionfieldtickets.com') && (
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap bg-amber-100 text-amber-900 border-amber-300"
-                          title="@auto1oil.com email on a customer login — this may be staff who signed up the wrong way. Expand to make them staff.">
+                          title="@stallionfieldtickets.com email on a customer login — this may be staff who signed up the wrong way. Expand to make them staff.">
                           Staff email?
                         </span>
                       )}
@@ -1260,10 +1260,10 @@ export default function AdminCustomersPage() {
                             left behind after a merge — any admin can remove it.
                             Only for UNLINKED placeholders: a real QB customer is
                             linked to a business, and an email-less QB customer
-                            also gets a synthetic @auto1oil.local address, so
+                            also gets a synthetic @stallion.local address, so
                             requiring "no business" stops real customers from
                             being one-click deleted by mistake. */}
-                        {c.email.endsWith('@auto1oil.local') && !c.business_id && (meRole === 'admin' || meRole === 'master_admin') && (
+                        {c.email.endsWith('@stallion.local') && !c.business_id && (meRole === 'admin' || meRole === 'master_admin') && (
                           <button
                             onClick={(e) => { e.stopPropagation(); deleteCustomer(c); }}
                             disabled={linkBusy === c.id}

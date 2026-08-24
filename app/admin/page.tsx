@@ -449,7 +449,7 @@ export default function AdminOrdersPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `auto1-orders-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `stallion-orders-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

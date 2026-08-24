@@ -1,60 +1,61 @@
-# Auto 1 Oil — Features
+# Stallion — Features
 
 A staff-facing summary of what the app does today. Updated as new features ship.
 
-## 🛍️ For your customers (`/shop`)
-- **Sign up** for an online account with their business name, contact info, city, and delivery address
-- **Browse the product catalog** — fuels, motor oils (with weight & container size choices), Mag 1 packaged goods
-- **Cart + checkout** that remembers what they last bought so reordering is one click
-- **Place a delivery order** with notes for the office
-- **Order history** showing status — Pending review · Invoiced · Out for delivery · Cancelled
-- **Account page** to update business name, phone, city, and delivery address
-- **Document uploads** — customer profile sheet, TC-721 sales-tax exemption, W-9
-- Installs as a phone app (PWA) — added to home screen
+## 🎫 For the crew (`/tickets`)
+- **New ticket** — customer, customer #, job #, day #, phase code, claim #,
+  unit # (truck), FSR, date
+- **Start / stop times** plus travel and down time — hours and the dollar
+  amount are calculated as you type, so nothing is added up by hand
+- **Tonnage** and tonnage type for tonnage-priced jobs (they bill tonnage ×
+  rate instead of hours × rate)
+- **Suggested rate** — the agreed rate for that job/phase is one tap away
+- **Photo of the paper ticket** straight from the phone's camera, plus the
+  short ticket, both compressed before upload
+- **On-screen signature** for the FSR
+- **Save as a draft** on the job, submit when the photo's on it
+- **My tickets** — everything you've filed, filtered by stage, showing what the
+  office did with it and the reason if anything came back
 
-## 🧑‍💼 For salesmen (`/salesman`)
-- **Log Visit** — drop in a business name, city, contact person, and notes from the field
-- **End-of-day text summary** — one tap opens a Messages thread to every admin with the day's visits filled in
-- **Customers Visited** tab — every business anyone has visited, alphabetized, with city and visit count. Shows a ✓ Customer badge when the business is one of your existing accounts
-- **Place Order on behalf of a customer** — same product catalog as the customer-facing app
-- **Daily hours** auto-calculated from visit timestamps
+## 🏢 For the office (`/work-orders`)
+- **Review queue** — every submitted ticket in one place, with a badge in the
+  nav when something's waiting
+- **Open a ticket** against the photo, fix anything that's off, then approve
+- **Approve = invoice** — approving raises the customer's QuickBooks invoice in
+  the same step (hours or tonnage × rate) and stamps the invoice number back on
+  the ticket. If QuickBooks is down, the approval stands and the ticket keeps a
+  retry button rather than losing the work
+- **Send back** with a reason — the crew gets a notification and can fix it
+- **All tickets** view filtered by stage: waiting, approved, funds approved,
+  invoiced, sent back, drafts
+- **Setup** — the QuickBooks item every ticket bills against, and the job-rate
+  table the crew's form reads from
 
-## 🚚 For drivers (`/driver`)
-- **Orders board** showing what's assigned to them today
-- **Order detail** with delivery address, contents, customer notes, and the QB invoice PDF
-- **Signature capture** on delivery — signed PDF saved automatically
-- **Delivery Log** to review what's been delivered
-- **My Hours** tracking
-- Can also place orders on behalf of a customer
+## 👷 For contractors (`/contractor`)
+- **Work orders** — their crews' tickets, with crew days, total hours and
+  finished work orders at the top
+- **Approvals** — sign off on their crews' submitted days and hours
+- **Short ticket upload** on any of their tickets
+- **Rates** — the agreed rate per job and phase, read-only
 
-## 🏢 For admin / office (`/admin`)
+## 💵 For the funder (`/funder`)
+- **Orders** — every ticket in the system, grouped by job with the **truck
+  count** per job, ticket count, and dollar total
+- **Approve funds** on tickets the office has audited and approved — the
+  digital replacement for the emailed ticket → Bill of Sale loop
 
-### Order intake
-- **Dispatch board** — all delivery orders, filterable, with truck assignment, driver assignment, and CSV export
-- **Upload invoice** button (yellow) — manual order entry with PDF attach, for any time the QB sync isn't usable
-- **+ Customer order** button (gold) — manually place an order on behalf of any customer
-- **For Approval** tab — every pending customer order in one place
-- **Edit a pending order** — adjust quantities, set unit prices, add or remove items before invoicing
-- **Ready to send to dispatch** box at the top of the Dispatch page — invoiced orders waiting on a truck assignment
+## 🚚 Delivery + trucking side (kept from the dispatch app)
+- Dispatch board, delivery log, signature-on-delivery with a signed PDF
+- Trucking freight invoicing (lanes, commodities, EIA-driven fuel surcharge)
+- Customer directory with document checklist (profile sheet, TC-721, W-9)
+- Customer ordering at `/shop`, order confirmation, and QuickBooks invoicing
 
-### QuickBooks integration
-- One-click QB invoice creation from any customer order
-- Per-line fuel pricing (priced fresh each invoice, per customer)
-- Federal & state fuel taxes auto-added; sales tax skipped for TC-721 customers
-- Customer + item matching via mapping table, billing history, or auto-create
-- Invoice PDF auto-attached to the order for the driver to see
-- Sync your QB customer list into the app
-- QB ↔ product mapping admin UI
-
-### People & records
-- **Customers** page — every customer, document checklist (profile, TC-721, W-9), inline document viewer
-- **Customers Visited** — same alphabetized view as salesmen
-- **Sales Log** — weekly grid showing every salesman's visits, with auto-calculated daily and weekly hours
-- **Delivery Log** — full delivery history
-- **Hours** — payroll-ready hours per employee
-- **Fuel Prices** — daily price tracking
-- **Users** — add/manage admins, salesmen, drivers
-
-### Misc
-- Notification bell with deletable in-app notifications
-- Mobile-friendly throughout, installable as a PWA
+## 🧰 Everywhere
+- **QuickBooks Online** — OAuth connection, customer sync, invoice creation,
+  invoice PDFs
+- **Time clock** — pinned to Mountain time, with location breadcrumbs while
+  someone is clocked in
+- **Messaging, tasks, reminders**, and a notification bell
+- **Push notifications** for submitted, approved, and sent-back tickets
+- **Per-role tab toggles** so a master admin can hide tabs a role doesn't need
+- Installable as a phone app (PWA) with an in-app "Update now" flow

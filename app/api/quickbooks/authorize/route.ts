@@ -36,5 +36,5 @@ export async function GET() {
 }
 
 function getBase() {
-  return process.env.NEXT_PUBLIC_SITE_URL || 'https://auto1oil.vercel.app';
+  return process.env.NEXT_PUBLIC_SITE_URL || 'https://stallion.vercel.app';
 }
