@@ -65,8 +65,10 @@ drop table if exists public.card_driver_map cascade;
 drop table if exists public.card_charges cascade;
 drop table if exists public.plaid_items cascade;
 
--- ---- Per-staff notification pref that no longer has a trigger ------------
+-- ---- Per-staff notification prefs ---------------------------------------
 alter table public.profiles drop column if exists notify_on_visit_request;
+alter table public.profiles
+  add column if not exists notify_on_work_order boolean not null default true;
 
 -- ---- Visit-reminder cadence settings ------------------------------------
 delete from public.app_settings

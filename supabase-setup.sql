@@ -856,7 +856,7 @@ alter table public.profiles
   add column if not exists notify_on_new_order     boolean not null default true,
   add column if not exists notify_on_order_status  boolean not null default true,
   add column if not exists notify_on_new_customer  boolean not null default true,
-  add column if not exists notify_on_visit_request boolean not null default true,
+  add column if not exists notify_on_work_order    boolean not null default true,
   add column if not exists notify_on_task          boolean not null default true;
 
 
@@ -999,7 +999,7 @@ begin
     when new.kind in ('new_order', 'pending_order', 'new_order_with_rep') then 'notify_on_new_order'
     when new.kind in ('order_status', 'out_for_delivery', 'delivered') then 'notify_on_order_status'
     when new.kind = 'business_link_request' then 'notify_on_new_customer'
-    when new.kind = 'visit_request' then 'notify_on_visit_request'
+    when new.kind in ('work_order_submitted', 'work_order_approved', 'work_order_funds', 'work_order_rejected') then 'notify_on_work_order'
     else null
   end;
   if pref_col is not null then
@@ -2331,6 +2331,16 @@ create policy "wo funder approve" on public.work_orders
 -- "contractor may only set contractor_approved_*, funder only funder_*, crew
 -- can't self-approve" rule is enforced server-side in the approval routes,
 -- which run with the service role and set exactly the allowed fields.
+
+
+-- The office picks the QuickBooks item every ticket bills against, on the Work
+-- Orders setup screen. app_settings is otherwise admin-only, so office gets a
+-- narrow policy over just those two keys.
+drop policy if exists "Office manages work order settings" on public.app_settings;
+create policy "Office manages work order settings" on public.app_settings
+  for all to authenticated
+  using (public.has_role(array['office']) and key like 'work_order_%')
+  with check (public.has_role(array['office']) and key like 'work_order_%');
 
 
 -- ==========================================================================

@@ -1,8 +1,8 @@
 // GET /api/quickbooks/items
 //
-// Returns every active item in the connected QuickBooks company. Used by
-// /admin/quickbooks/mappings so admins can pick which QB item each of our
-// product variants maps to.
+// Returns every active item in the connected QuickBooks company. Used by the
+// Work Orders setup screen to pick the item every approved ticket bills
+// against, and by the admin QuickBooks mapping screens.
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
@@ -16,8 +16,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
   const { data: actor } = await supabase
     .from('profiles').select('role').eq('id', user.id).single();
-  if (!actor || (actor.role !== 'admin' && actor.role !== 'master_admin')) {
-    return NextResponse.json({ ok: false, error: 'admin required' }, { status: 403 });
+  if (!actor || !['office', 'admin', 'master_admin'].includes(actor.role)) {
+    return NextResponse.json({ ok: false, error: 'office or admin required' }, { status: 403 });
   }
 
   try {

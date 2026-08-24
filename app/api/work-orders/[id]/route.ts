@@ -1,0 +1,102 @@
+// GET    /api/work-orders/[id] — one ticket (RLS decides visibility).
+// PATCH  /api/work-orders/[id] — edit a ticket's fields, and optionally submit it.
+// DELETE /api/work-orders/[id] — remove a draft (its author, or an admin).
+//
+// Only the editable columns are ever written here. Status moves are limited to
+// the one a crew member is allowed to make themselves — draft → submitted;
+// every approval goes through the routes under ./approve.
+
+import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase-server';
+import { pickEditable } from '@/lib/work-orders';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
+
+  const { data, error } = await supabase
+    .from('work_orders')
+    .select('*')
+    .eq('id', params.id)
+    .maybeSingle();
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (!data) return NextResponse.json({ ok: false, error: 'not found' }, { status: 404 });
+  return NextResponse.json({ ok: true, work_order: data });
+}
+
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
+
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* ignore */ }
+
+  const patch = pickEditable(body);
+  if (body.submit === true) {
+    patch.status = 'submitted';
+    patch.submitted_at = new Date().toISOString();
+  }
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ ok: false, error: 'nothing to update' }, { status: 400 });
+  }
+
+  // RLS keeps a crew member to their own draft/submitted rows and lets
+  // office/admin edit anything, so no extra role check is needed here.
+  const { data, error } = await supabase
+    .from('work_orders')
+    .update(patch)
+    .eq('id', params.id)
+    .select('*')
+    .maybeSingle();
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (!data) return NextResponse.json({ ok: false, error: 'not found or not yours to edit' }, { status: 403 });
+
+  // Tell the office a ticket is waiting. Best-effort: a failed notify must not
+  // fail the submit.
+  if (body.submit === true) {
+    try {
+      const { data: staff } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['office', 'admin', 'master_admin']);
+      const rows = ((staff as { id: string }[]) || []).map((s) => ({
+        recipient_id: s.id,
+        kind: 'work_order_submitted',
+        title: `Ticket submitted${data.job_number ? ` — job ${data.job_number}` : ''}`,
+        body: [data.unit_number ? `Unit ${data.unit_number}` : null, data.job_date].filter(Boolean).join(' · ') || null,
+        link: `/work-orders/${data.id}`,
+      }));
+      if (rows.length) await supabase.from('notifications').insert(rows);
+    } catch { /* notification is a nicety, the ticket is submitted either way */ }
+  }
+
+  return NextResponse.json({ ok: true, work_order: data });
+}
+
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
+
+  const { data: existing } = await supabase
+    .from('work_orders')
+    .select('id, status, submitted_by')
+    .eq('id', params.id)
+    .maybeSingle();
+  if (!existing) return NextResponse.json({ ok: false, error: 'not found' }, { status: 404 });
+
+  const { data: actor } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const isStaff = ['office', 'admin', 'master_admin'].includes(actor?.role || '');
+  if (!isStaff && !(existing.submitted_by === user.id && existing.status === 'draft')) {
+    return NextResponse.json({ ok: false, error: 'only a draft you created can be deleted' }, { status: 403 });
+  }
+
+  const { error } = await supabase.from('work_orders').delete().eq('id', params.id);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
+}
