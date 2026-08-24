@@ -17,12 +17,19 @@
 --        where email = 'admin@example.com';
 -- ==========================================================================
 
+-- Function bodies in this file reference tables defined further down (and vice
+-- versa), which is fine at runtime but fails Postgres' create-time body check.
+-- Turn it off for this script so the file can be read top-to-bottom.
+set check_function_bodies = off;
+
 
 -- ==========================================================================
--- 1. Helper function: is_admin()
+-- 1. Helper functions: is_admin(), has_role()
 -- ==========================================================================
--- Returns true if the current authenticated user has admin OR master_admin
--- role. Used in nearly every RLS policy that gates admin-only writes.
+-- is_admin() returns true if the current authenticated user has admin OR
+-- master_admin role. Used in nearly every RLS policy that gates admin-only
+-- writes. has_role() is the same idea for any other set of roles, so policies
+-- naming several roles stay readable.
 
 create or replace function public.is_admin()
 returns boolean
@@ -36,6 +43,20 @@ as $$
       and role in ('admin', 'master_admin')
   );
 $$;
+
+create or replace function public.has_role(roles text[])
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = any(roles)
+  );
+$$;
+grant execute on function public.has_role(text[]) to authenticated;
 
 
 -- ==========================================================================
@@ -72,6 +93,18 @@ alter table public.profiles add column if not exists contact_email text;
 -- additive and idempotent on existing projects. `city` (added below) is used
 -- alongside business_name to match customer accounts to their locations.
 alter table public.profiles add column if not exists city text;
+-- Customer-facing details carried on the profile itself. `business_name` is
+-- what a customer typed at signup (the linked Business row is authoritative
+-- once they're linked); `imported_from_qb_customer_id` marks a profile the
+-- QuickBooks customer sync created; `qb_class` tags a staff member's invoice
+-- lines so QuickBooks can report P&L by rep.
+alter table public.profiles add column if not exists business_name text;
+alter table public.profiles add column if not exists address text;
+alter table public.profiles add column if not exists imported_from_qb_customer_id text;
+alter table public.profiles add column if not exists qb_class text;
+create index if not exists profiles_imported_qb_idx
+  on public.profiles(imported_from_qb_customer_id)
+  where imported_from_qb_customer_id is not null;
 
 -- Allow the 'customer' role and make it the default for new profiles. This is
 -- separate from the create-table above because that is skipped on existing
@@ -749,6 +782,249 @@ grant select, insert, update, delete on public.business_link_requests  to authen
 grant select, insert, update, delete on public.business_invites        to authenticated, anon;
 
 -- ==========================================================================
+-- 40. Tables the canonical file was missing
+-- ==========================================================================
+-- These nine tables are used all over the app but were never written into the
+-- setup file — they had been created by hand in the original project, so a
+-- genuinely fresh Supabase project came up broken (every read against them
+-- errored). Reconstructed here from the columns the code actually reads and
+-- writes, so this file really does stand a new project up on its own.
+--
+-- `notifications` in particular backs the work-order flow: the push trigger in
+-- section 19 fires off a row inserted here.
+
+-- ---- QuickBooks connection (single row, id = 1) --------------------------
+create table if not exists public.quickbooks_connection (
+  id                       int primary key default 1 check (id = 1),
+  realm_id                 text,
+  access_token             text,
+  access_token_expires_at  timestamptz,
+  refresh_token            text,
+  environment              text not null default 'sandbox'
+                             check (environment in ('sandbox', 'production')),
+  connected_by             uuid references public.profiles(id) on delete set null,
+  connected_at             timestamptz,
+  updated_at               timestamptz not null default now()
+);
+grant select, insert, update, delete on public.quickbooks_connection to authenticated;
+alter table public.quickbooks_connection enable row level security;
+-- Tokens are admin-only. Server routes reach them with the service-role key.
+drop policy if exists "Admins manage quickbooks_connection" on public.quickbooks_connection;
+create policy "Admins manage quickbooks_connection" on public.quickbooks_connection
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ---- Notifications (the bell + web push) ---------------------------------
+create table if not exists public.notifications (
+  id           uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references public.profiles(id) on delete cascade,
+  kind         text not null,
+  title        text not null,
+  body         text,
+  link         text,
+  read_at      timestamptz,
+  created_at   timestamptz not null default now()
+);
+create index if not exists notifications_recipient_idx
+  on public.notifications(recipient_id, created_at desc);
+create index if not exists notifications_unread_idx
+  on public.notifications(recipient_id) where read_at is null;
+grant select, insert, update, delete on public.notifications to authenticated;
+alter table public.notifications enable row level security;
+
+drop policy if exists "Read own notifications"   on public.notifications;
+drop policy if exists "Update own notifications" on public.notifications;
+drop policy if exists "Delete own notifications" on public.notifications;
+drop policy if exists "Staff create notifications" on public.notifications;
+create policy "Read own notifications" on public.notifications
+  for select to authenticated using (recipient_id = auth.uid());
+create policy "Update own notifications" on public.notifications
+  for update to authenticated using (recipient_id = auth.uid()) with check (recipient_id = auth.uid());
+create policy "Delete own notifications" on public.notifications
+  for delete to authenticated using (recipient_id = auth.uid() or public.is_admin());
+-- Any signed-in staff member can notify someone else (submitting a ticket
+-- notifies the office, approving it notifies the crew).
+create policy "Staff create notifications" on public.notifications
+  for insert to authenticated
+  with check (
+    public.is_admin()
+    or public.has_role(array['office','driver','mechanic','contractor','funder','labor'])
+  );
+
+-- ---- Products (the customer-facing catalog) ------------------------------
+create table if not exists public.products (
+  id                      uuid primary key default gen_random_uuid(),
+  name                    text not null,
+  category                text not null default 'Other',
+  is_oil                  boolean not null default false,
+  sort_order              int not null default 0,
+  -- Variant options offered for this product. `sizes_by_weight` narrows the
+  -- container sizes per weight when they differ (e.g. only bulk in 15W-40).
+  container_sizes         text[],
+  weights                 text[],
+  sizes_by_weight         jsonb,
+  variant_label           text,
+  default_weight          text,
+  default_container_size  text,
+  active                  boolean not null default true,
+  created_at              timestamptz not null default now()
+);
+create index if not exists products_active_idx on public.products(active, sort_order);
+grant select, insert, update, delete on public.products to authenticated;
+alter table public.products enable row level security;
+drop policy if exists "Anyone signed in reads products" on public.products;
+drop policy if exists "Admins manage products"          on public.products;
+create policy "Anyone signed in reads products" on public.products
+  for select to authenticated using (true);
+create policy "Admins manage products" on public.products
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ---- Customer orders + their lines ---------------------------------------
+create table if not exists public.customer_orders (
+  id                   uuid primary key default gen_random_uuid(),
+  customer_id          uuid not null references public.profiles(id) on delete cascade,
+  -- Who put the order in, when it wasn't the customer themselves.
+  submitted_by_id      uuid references public.profiles(id) on delete set null,
+  sales_rep_id         uuid references public.profiles(id) on delete set null,
+  status               text not null default 'pending'
+                         check (status in ('pending','invoiced','dispatched','cancelled')),
+  delivery_address     text,
+  notes                text,
+  po_number            text,
+  payment_term_id      text,
+  charge_tax           boolean not null default false,
+  invoice_number       text,
+  invoice_pdf_path     text,
+  invoiced_at          timestamptz,
+  -- Set when the order becomes a row on the dispatch board.
+  dispatched_order_id  uuid references public.orders(id) on delete set null,
+  dispatched_at        timestamptz,
+  -- Why auto-posting fell back to the approval queue, if it did.
+  auto_post_error      text,
+  created_at           timestamptz not null default now()
+);
+create index if not exists customer_orders_customer_idx on public.customer_orders(customer_id, created_at desc);
+create index if not exists customer_orders_status_idx   on public.customer_orders(status, created_at desc);
+grant select, insert, update, delete on public.customer_orders to authenticated;
+alter table public.customer_orders enable row level security;
+
+create table if not exists public.customer_order_items (
+  id                 uuid primary key default gen_random_uuid(),
+  customer_order_id  uuid not null references public.customer_orders(id) on delete cascade,
+  product_id         uuid references public.products(id) on delete set null,
+  product_name       text not null,
+  brand              text,
+  weight             text,
+  container_size     text,
+  quantity           numeric(12,2) not null default 1,
+  unit_price         numeric(12,4),
+  notes              text
+);
+create index if not exists customer_order_items_order_idx on public.customer_order_items(customer_order_id);
+grant select, insert, update, delete on public.customer_order_items to authenticated;
+alter table public.customer_order_items enable row level security;
+
+-- A customer sees their own orders (and their business's); staff see all.
+drop policy if exists "Customers manage own orders" on public.customer_orders;
+drop policy if exists "Staff manage customer_orders" on public.customer_orders;
+create policy "Customers manage own orders" on public.customer_orders
+  for all to authenticated
+  using (customer_id = auth.uid())
+  with check (customer_id = auth.uid());
+create policy "Staff manage customer_orders" on public.customer_orders
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office','driver','mechanic']))
+  with check (public.is_admin() or public.has_role(array['office','driver','mechanic']));
+
+drop policy if exists "Customers manage own order items" on public.customer_order_items;
+drop policy if exists "Staff manage customer_order_items" on public.customer_order_items;
+create policy "Customers manage own order items" on public.customer_order_items
+  for all to authenticated
+  using (exists (select 1 from public.customer_orders o
+                 where o.id = customer_order_id and o.customer_id = auth.uid()))
+  with check (exists (select 1 from public.customer_orders o
+                      where o.id = customer_order_id and o.customer_id = auth.uid()));
+create policy "Staff manage customer_order_items" on public.customer_order_items
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office','driver','mechanic']))
+  with check (public.is_admin() or public.has_role(array['office','driver','mechanic']));
+
+-- ---- Customer documents (profile sheet / TC-721 / W-9) -------------------
+create table if not exists public.customer_documents (
+  id               uuid primary key default gen_random_uuid(),
+  customer_id      uuid not null references public.profiles(id) on delete cascade,
+  doc_type         text not null check (doc_type in ('profile_sheet','tax_exempt','fein','w9','filled_form')),
+  file_path        text not null,
+  file_name        text,
+  file_size_bytes  bigint,
+  mime_type        text,
+  uploaded_at      timestamptz not null default now()
+);
+-- One current document per type per customer — the upload path upserts on this.
+create unique index if not exists customer_documents_customer_type_idx
+  on public.customer_documents(customer_id, doc_type);
+grant select, insert, update, delete on public.customer_documents to authenticated;
+alter table public.customer_documents enable row level security;
+
+-- ---- QuickBooks mappings --------------------------------------------------
+create table if not exists public.customer_qb_mapping (
+  profile_id        uuid primary key references public.profiles(id) on delete cascade,
+  qb_customer_id    text not null,
+  qb_customer_name  text,
+  updated_at        timestamptz not null default now()
+);
+grant select, insert, update, delete on public.customer_qb_mapping to authenticated;
+alter table public.customer_qb_mapping enable row level security;
+drop policy if exists "Staff manage customer_qb_mapping" on public.customer_qb_mapping;
+create policy "Staff manage customer_qb_mapping" on public.customer_qb_mapping
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+create table if not exists public.product_qb_mapping (
+  product_id      uuid not null references public.products(id) on delete cascade,
+  weight          text not null default '',
+  container_size  text not null default '',
+  qb_item_id      text not null,
+  qb_item_name    text,
+  updated_at      timestamptz not null default now(),
+  primary key (product_id, weight, container_size)
+);
+grant select, insert, update, delete on public.product_qb_mapping to authenticated;
+alter table public.product_qb_mapping enable row level security;
+drop policy if exists "Staff manage product_qb_mapping" on public.product_qb_mapping;
+create policy "Staff manage product_qb_mapping" on public.product_qb_mapping
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+-- ---- Reorder reminders (a customer's own standing nudge) -----------------
+create table if not exists public.reorder_reminders (
+  id                     uuid primary key default gen_random_uuid(),
+  business_id            uuid not null references public.businesses(id) on delete cascade,
+  created_by_profile_id  uuid references public.profiles(id) on delete set null,
+  kind                   text not null default 'weekly'
+                           check (kind in ('weekly','biweekly','monthly_day','learned')),
+  day_of_week            int check (day_of_week between 0 and 6),
+  day_of_month           int check (day_of_month between 1 and 31),
+  learned_interval_days  int,
+  next_fire_at           timestamptz,
+  active                 boolean not null default true,
+  created_at             timestamptz not null default now()
+);
+create index if not exists reorder_reminders_business_idx on public.reorder_reminders(business_id) where active;
+alter table public.reorder_reminders enable row level security;
+drop policy if exists "Members manage own reorder_reminders" on public.reorder_reminders;
+drop policy if exists "Staff read reorder_reminders"         on public.reorder_reminders;
+create policy "Members manage own reorder_reminders" on public.reorder_reminders
+  for all to authenticated
+  using (business_id = (select business_id from public.profiles where id = auth.uid()))
+  with check (business_id = (select business_id from public.profiles where id = auth.uid()));
+create policy "Staff read reorder_reminders" on public.reorder_reminders
+  for select to authenticated
+  using (public.is_admin() or public.has_role(array['office']));
+
+
+-- ==========================================================================
 -- 13. Dispatch order tracking
 -- ==========================================================================
 -- Customer-facing status on the dispatch `orders` table so the customer can
@@ -958,7 +1234,12 @@ create policy "Admins delete tasks" on public.tasks
 -- If push_dispatch_url is missing, push dispatch is skipped (the in-app
 -- notification is still created).
 
-create extension if not exists pg_net;
+do $$
+begin
+  create extension if not exists pg_net;
+exception when others then
+  raise notice 'pg_net unavailable — the push-dispatch trigger will no-op until it is enabled.';
+end $$;
 
 -- Small key/value config table for values the SQL editor can't set as GUCs.
 create table if not exists public.app_settings (
@@ -1442,6 +1723,21 @@ alter table public.messages add column if not exists attachment_type text;  -- m
 alter table public.messages add column if not exists attachment_name text;
 alter table public.messages alter column body drop not null;
 
+-- Can the current user see / post to this board?
+create or replace function public.can_access_board(b uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.message_boards mb
+    where mb.id = b
+      and (
+        (mb.all_staff and public.is_staff())
+        or exists (select 1 from public.board_members m
+                   where m.board_id = b and m.user_id = auth.uid())
+      )
+  );
+$$;
+grant execute on function public.can_access_board(uuid) to authenticated;
+
 -- message-media bucket: private. Access is gated to members of the board the
 -- file belongs to — the storage path is '<board_id>/<filename>', so we check
 -- can_access_board on the first path segment.
@@ -1457,20 +1753,7 @@ create policy "message media write" on storage.objects for insert to authenticat
   with check (bucket_id = 'message-media'
               and public.can_access_board(((storage.foldername(name))[1])::uuid));
 
--- Can the current user see / post to this board?
-create or replace function public.can_access_board(b uuid)
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-    select 1 from public.message_boards mb
-    where mb.id = b
-      and (
-        (mb.all_staff and public.is_staff())
-        or exists (select 1 from public.board_members m
-                   where m.board_id = b and m.user_id = auth.uid())
-      )
-  );
-$$;
-grant execute on function public.can_access_board(uuid) to authenticated;
+
 
 -- Seed the default staff board once.
 insert into public.message_boards (name, kind, all_staff, is_default, sort_order)
@@ -2190,21 +2473,6 @@ update public.trucking_commodities set pricing_mode = 'amount'   where name = 'T
 -- Approvals are gated in the API routes (app/api/work-orders/*), which run as
 -- the service role and write only the columns that role is allowed to touch.
 -- RLS below decides WHO can see and write a row at all.
-
--- Small role helper so policies stay readable.
-create or replace function public.has_role(roles text[])
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = any(roles)
-  );
-$$;
-grant execute on function public.has_role(text[]) to authenticated;
 
 create table if not exists public.work_orders (
   id                     uuid primary key default gen_random_uuid(),
