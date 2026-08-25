@@ -2760,5 +2760,27 @@ alter table public.profiles add column if not exists active boolean not null def
 
 
 -- ==========================================================================
+-- 45. What a truck can pull
+-- ==========================================================================
+-- A tractor is not one thing: the same unit might have a belly dump and an
+-- end dump available, and which one it is pulling changes by the week. So a
+-- unit carries a LIST of trailers rather than one type — equipment_type stays
+-- the truck itself (Tractor, Water Truck, Excavator) and trailer_types is what
+-- it can be put behind. A self-contained unit just has none.
+--
+-- This is what lets dispatch answer "who has a side dump free on Thursday"
+-- without ringing round.
+-- ==========================================================================
+
+alter table public.hauler_equipment
+  add column if not exists trailer_types text[] not null default '{}';
+
+-- Finding every unit that can pull a given trailer is the query this exists
+-- for, and it is a containment test, so it wants a GIN index.
+create index if not exists hauler_equipment_trailers_idx
+  on public.hauler_equipment using gin (trailer_types);
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

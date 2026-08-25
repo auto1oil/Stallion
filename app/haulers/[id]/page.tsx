@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { orderLabel, type JobOrder } from '@/lib/job-orders';
 import {
-  LOAD_STATUS_LABEL, LOAD_STATUS_TONE, isFreeOn,
+  LOAD_STATUS_LABEL, LOAD_STATUS_TONE, isFreeOn, unitCanPull,
   type Hauler, type HaulerEquipment, type HaulerAvailability,
   type HaulerLoad, type LoadStatus,
 } from '@/lib/haulers';
@@ -245,6 +245,11 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
                   <span className="min-w-0">
                     <span className="font-medium">{u.unit_number || 'Unit'}</span>
                     <span className="text-gray-500"> · {[u.equipment_type, u.capacity, u.description].filter(Boolean).join(' · ') || '—'}</span>
+                    {(u.trailer_types || []).length > 0 && (
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        Pulls: {(u.trailer_types || []).join(', ')}
+                      </span>
+                    )}
                   </span>
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
                     !u.active ? 'bg-gray-100 text-gray-600 border-gray-200'
@@ -362,10 +367,25 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
               <label><span className={label}>Unit (optional)</span>
                 <select value={load.equipment_id} onChange={(e) => setLoad({ ...load, equipment_id: e.target.value })} className={input}>
                   <option value="">— Hauler picks —</option>
-                  {fleet.filter((u) => u.active).map((u) => (
-                    <option key={u.id} value={u.id}>{u.unit_number || u.equipment_type || 'Unit'}</option>
-                  ))}
+                  {fleet.filter((u) => u.active).map((u) => {
+                    // Flagged rather than hidden: dispatch may know something
+                    // the fleet list doesn't, and a unit vanishing with no
+                    // explanation is worse than one marked as a mismatch.
+                    const fits = unitCanPull(u, load.equipment_type);
+                    return (
+                      <option key={u.id} value={u.id}>
+                        {u.unit_number || u.equipment_type || 'Unit'}
+                        {load.equipment_type.trim() && !fits ? ' — no matching trailer' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                {load.equipment_type.trim() && (
+                  <span className="block mt-1 text-[11px] text-gray-500">
+                    {fleet.filter((u) => u.active && unitCanPull(u, load.equipment_type)).length} of{' '}
+                    {fleet.filter((u) => u.active).length} units can pull a {load.equipment_type.trim()}.
+                  </span>
+                )}
               </label>
               <label className="col-span-2 sm:col-span-3"><span className={label}>Notes</span>
                 <textarea value={load.notes} onChange={(e) => setLoad({ ...load, notes: e.target.value })} rows={2} className={input} />

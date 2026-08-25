@@ -59,7 +59,11 @@ export type HaulerEquipment = {
   id: string;
   hauler_id: string;
   unit_number: string | null;
+  // The truck itself — Tractor, Water Truck, Excavator.
   equipment_type: string | null;
+  // What it can pull. A tractor often has more than one trailer available
+  // and swaps between them, so this is a list, not a field.
+  trailer_types: string[];
   description: string | null;
   capacity: string | null;
   active: boolean;
@@ -146,6 +150,30 @@ export function loadSummary(load: Pick<HaulerLoad,
     load.equipment_type,
     load.pickup && load.dropoff ? `${load.pickup} → ${load.dropoff}` : (load.pickup || load.dropoff),
   ].filter(Boolean).join(' · ');
+}
+
+// The trailers Stallion's jobs actually call for. Taken from the truck-type
+// box on the paper haul ticket, so the words match what the yard says.
+export const TRAILER_TYPES = [
+  'Belly Dump', 'Double Belly', 'Single Belly',
+  'Side Dump', 'Single Side', 'Super Side', 'Side Dump Double',
+  'End Dump', 'Super Dump', 'Truck & Pup',
+  'Strong Arm', '6 Axle SS or DS', 'Vacuum Trailer',
+  'Lowboy', 'Flatbed', 'Water Tank',
+];
+
+// Whether a unit can pull what a job is asking for. Matched loosely — the
+// office types the requirement free-hand, and "belly dump" should find a unit
+// listed as "Belly Dump".
+export function unitCanPull(
+  unit: Pick<HaulerEquipment, 'trailer_types' | 'equipment_type'>,
+  needed: string | null,
+): boolean {
+  if (!needed) return true;
+  const want = needed.trim().toLowerCase();
+  if (!want) return true;
+  if ((unit.equipment_type || '').trim().toLowerCase() === want) return true;
+  return (unit.trailer_types || []).some((t) => t.trim().toLowerCase() === want);
 }
 
 // Does a date fall inside an availability window? Both ends are inclusive —

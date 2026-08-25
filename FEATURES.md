@@ -100,6 +100,12 @@ A staff-facing summary of what the app does today. Updated as new features ship.
   into it. All that's left on site is the times and the loads
 - **Their fleet** — haulers add and retire their own trucks and equipment, and
   the office picks from that same list when sending a load
+- **What each truck can pull** — a tractor carries a list of trailers, not one
+  type, because the same unit swaps between a belly dump and an end dump week
+  to week. Editable per unit, since that's what actually changes
+- Sending a load that names the equipment it needs shows how many units can
+  take it, and marks the ones that can't — without hiding them, since
+  dispatch may know something the fleet list doesn't
 - **Availability** — haulers block out the dates they can't run, by unit or for
   the whole company, and see the next fortnight as a green/red strip. The
   office sees the same thing before sending work
