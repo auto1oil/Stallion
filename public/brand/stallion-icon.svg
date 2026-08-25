@@ -1,17 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Stallion Tank">
   <title>Stallion Tank</title>
-  <style>
-    /* The browser tab strip is light in most setups and dark in some. A black
-       horse disappears against a dark strip, so it flips to white there. */
-    .horse { fill: #111111; }
-    @media (prefers-color-scheme: dark) {
-      .horse { fill: #FFFFFF; }
-    }
-  </style>
 
-  <!-- The horse on its own, no plate behind it — at 16px in a tab, a
-       background square eats the space the silhouette needs to be legible. -->
-  <g transform="translate(56 118) scale(1.06)" class="horse">
+  <!-- The installed-app icon, kept separate from the favicon.
+       This one is declared "maskable", meaning the phone crops it to whatever
+       shape it likes — a circle on Android, a squircle on iOS. So it needs a
+       full-bleed background and the horse held inside the safe area (the
+       middle 80%), or the crop eats its legs. -->
+  <rect width="512" height="512" fill="#111111"/>
+
+  <g transform="translate(72 150) scale(0.92)" fill="#FFFFFF">
     <path d="M12 96
              C10 86, 13 74, 22 64
              C30 55, 38 48, 44 40
@@ -38,4 +35,6 @@
              C118 110, 108 104, 100 96
              C74 94, 40 96, 12 96 Z"/>
   </g>
+
+  <rect x="150" y="392" width="212" height="20" rx="10" fill="#8E1414"/>
 </svg>

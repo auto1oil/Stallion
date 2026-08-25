@@ -35,8 +35,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Auto 1 Oil';
   const options = {
     body: data.body || '',
-    icon: '/brand/stallion-mark.svg',
-    badge: '/brand/stallion-mark.svg',
+    icon: '/brand/stallion-icon.svg',
+    badge: '/brand/stallion-icon.svg',
     tag: data.tag || undefined,
     // Honor the recipient's per-account alert mode. `silent` suppresses sound;
     // `vibrate` adds a buzz pattern. (iOS web push ignores both, so it degrades

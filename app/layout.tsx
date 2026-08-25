@@ -19,8 +19,11 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
   },
   icons: {
+    // The tab icon is the horse on its own. The home-screen icon is the
+    // solid one — a phone crops that to a circle, which a bare silhouette
+    // does not survive.
     icon: '/brand/stallion-mark.svg',
-    apple: '/brand/stallion-mark.svg',
+    apple: '/brand/stallion-icon.svg',
   },
 };
 

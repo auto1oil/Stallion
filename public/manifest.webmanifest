@@ -10,7 +10,7 @@
   "theme_color": "#0C0C0D",
   "icons": [
     {
-      "src": "/brand/stallion-mark.svg",
+      "src": "/brand/stallion-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
