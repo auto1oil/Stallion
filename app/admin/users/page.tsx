@@ -47,6 +47,13 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Profile | null>(null);
+  // Two-step delete: the first click arms it, the second does it. A confirm
+  // dialog is easy to click through; a red panel naming what goes is not.
+  const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ id: string; msg: string } | null>(null);
+  const [emailDraft, setEmailDraft] = useState<{ id: string; value: string } | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
   // Per-user pending changes to territory_counties, applied on save.
   const [pendingCounties, setPendingCounties] = useState<Record<string, string[]>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -103,6 +110,44 @@ export default function UsersPage() {
       }
     } finally {
       setMatching(false);
+    }
+  }
+
+  async function deleteUser(u: Profile) {
+    setDeletingId(u.id); setRowError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.ok) { setRowError({ id: u.id, msg: json.error || 'Could not delete.' }); return; }
+      setArmedDeleteId(null);
+      setExpandedId(null);
+      load();
+    } catch {
+      setRowError({ id: u.id, msg: 'Network error — try again.' });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  // Sign-in email lives in auth, not the profile, so it goes through the
+  // admin route rather than the table update the rest of the editor uses.
+  async function changeEmail(u: Profile) {
+    if (!emailDraft || emailDraft.id !== u.id) return;
+    setEmailBusy(true); setRowError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailDraft.value }),
+      });
+      const json = await res.json();
+      if (!json.ok) { setRowError({ id: u.id, msg: json.error || 'Could not change the email.' }); return; }
+      setEmailDraft(null);
+      load();
+    } catch {
+      setRowError({ id: u.id, msg: 'Network error — try again.' });
+    } finally {
+      setEmailBusy(false);
     }
   }
 
@@ -404,6 +449,67 @@ export default function UsersPage() {
                             <div className="flex gap-2 pt-1">
                               <button onClick={() => saveBasic(editing)} className="px-3 py-1 text-sm bg-brand-700 text-white rounded hover:bg-brand-900">Save</button>
                               <button onClick={() => setEditing(null)} className="px-3 py-1 text-sm border border-gray-300 rounded">Cancel</button>
+                            </div>
+
+                            {/* Sign-in email lives in auth, so it saves on its
+                                own rather than with the profile fields above. */}
+                            <div className="pt-3 mt-2 border-t border-gray-100">
+                              <label className="block text-xs text-gray-600 mb-1">Sign-in email</label>
+                              <div className="flex gap-2 flex-wrap">
+                                <input
+                                  type="email"
+                                  value={emailDraft?.id === u.id ? emailDraft.value : u.email}
+                                  onChange={(e) => setEmailDraft({ id: u.id, value: e.target.value })}
+                                  className="flex-1 min-w-[220px] px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                />
+                                <button
+                                  onClick={() => changeEmail(u)}
+                                  disabled={emailBusy || emailDraft?.id !== u.id || emailDraft.value.trim().toLowerCase() === u.email}
+                                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+                                >
+                                  {emailBusy ? 'Changing…' : 'Change email'}
+                                </button>
+                              </div>
+                              <p className="mt-1 text-[11px] text-gray-500">
+                                Takes effect immediately — they sign in with the new address, no confirmation mail.
+                              </p>
+                            </div>
+
+                            <div className="pt-3 mt-2 border-t border-gray-100">
+                              {armedDeleteId === u.id ? (
+                                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">
+                                  <p className="text-red-800">
+                                    Delete <strong>{u.full_name || u.email}</strong>? They can&apos;t sign
+                                    in again. Their tickets stay, with their name on them — but their
+                                    time-clock history goes with the login. This can&apos;t be undone.
+                                  </p>
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={() => deleteUser(u)}
+                                      disabled={deletingId === u.id}
+                                      className="px-3 py-1 text-sm bg-red-700 text-white rounded hover:bg-red-800 disabled:opacity-50"
+                                    >
+                                      {deletingId === u.id ? 'Deleting…' : 'Yes, delete this login'}
+                                    </button>
+                                    <button
+                                      onClick={() => setArmedDeleteId(null)}
+                                      className="px-3 py-1 text-sm border border-gray-300 rounded"
+                                    >
+                                      Keep it
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setArmedDeleteId(u.id); setRowError(null); }}
+                                  className="text-sm text-red-600 hover:underline"
+                                >
+                                  Delete this user…
+                                </button>
+                              )}
+                              {rowError?.id === u.id && (
+                                <p className="mt-2 text-sm text-red-600">{rowError.msg}</p>
+                              )}
                             </div>
                           </div>
                         ) : (
