@@ -23,7 +23,7 @@ export default function HomePage() {
             invoiced the same day it&apos;s worked.
           </p>
           <div className="mt-6 flex gap-3 justify-center flex-wrap">
-            <Link href="/login" className="px-5 py-2.5 bg-accent-400 text-brand-900 rounded-md font-semibold hover:bg-accent-500">
+            <Link href="/login" className="px-5 py-2.5 bg-accent-400 text-white rounded-md font-semibold hover:bg-accent-500">
               Sign in
             </Link>
           </div>

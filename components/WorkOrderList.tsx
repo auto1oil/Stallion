@@ -98,9 +98,11 @@ export default function WorkOrderList({
                 </Link>
                 <div className="text-xs text-gray-500 mt-0.5">
                   {[
+                    wo.job_name || null,
                     wo.job_date,
                     wo.unit_number ? `Unit ${wo.unit_number}` : null,
                     wo.phase_code ? `Phase ${wo.phase_code}` : null,
+                    wo.equipment_type || null,
                     wo.fsr ? `FSR ${wo.fsr}` : null,
                   ].filter(Boolean).join(' · ')}
                 </div>

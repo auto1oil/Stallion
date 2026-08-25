@@ -46,10 +46,12 @@ export default function FunderTicketPage({ params }: { params: { id: string } })
   const facts: [string, string | null][] = [
     ['Customer #', wo.customer_number],
     ['Job #', wo.job_number],
+    ['Job name', wo.job_name],
     ['Day #', wo.day_number],
     ['Phase', wo.phase_code],
     ['Claim #', wo.claim_number],
     ['Unit #', wo.unit_number],
+    ['Equipment', wo.equipment_type],
     ['FSR', wo.fsr],
     ['Date', wo.job_date],
     ['Total hours', `${totalHours(wo).toFixed(2)} hrs`],

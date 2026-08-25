@@ -1,13 +1,13 @@
 {
-  "name": "Stallion Field Tickets",
-  "short_name": "Stallion",
+  "name": "Stallion Tank Field Tickets",
+  "short_name": "Stallion Tank",
   "description": "Field tickets, approvals, and invoicing for hauling crews.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#0F3D5C",
+  "theme_color": "#0C0C0D",
   "icons": [
     {
       "src": "/brand/stallion-mark.svg",

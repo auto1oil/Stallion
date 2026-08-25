@@ -1851,10 +1851,12 @@ create table if not exists public.work_orders (
   business_id            uuid references public.businesses(id) on delete set null,
   customer_number        text,
   job_number             text,
+  job_name               text,
   day_number             text,
   phase_code             text,
   claim_number           text,
   unit_number            text,          -- the truck on this ticket
+  equipment_type         text,          -- belly dump, end dump, water truck…
   fsr                    text,          -- Field Service Rep (name or ref)
 
   -- Time + amounts (worked hours are computed from start/stop, plus travel/down)
@@ -1897,6 +1899,12 @@ create table if not exists public.work_orders (
   created_at             timestamptz not null default now(),
   updated_at             timestamptz not null default now()
 );
+
+-- Columns added after the first release. `create table if not exists` above
+-- is a no-op on a project that already has the table, so anything added
+-- later has to be applied here too for this file to stay re-runnable.
+alter table public.work_orders add column if not exists job_name       text;
+alter table public.work_orders add column if not exists equipment_type text;
 
 create index if not exists work_orders_status_idx     on public.work_orders(status, job_date desc);
 create index if not exists work_orders_submitter_idx  on public.work_orders(submitted_by, created_at desc);

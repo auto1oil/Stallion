@@ -45,10 +45,12 @@ export type WorkOrder = {
   business_id: string | null;
   customer_number: string | null;
   job_number: string | null;
+  job_name: string | null;
   day_number: string | null;
   phase_code: string | null;
   claim_number: string | null;
   unit_number: string | null;
+  equipment_type: string | null;
   fsr: string | null;
   job_date: string | null;
   start_at: string | null;
@@ -83,8 +85,9 @@ export type WorkOrder = {
 // The columns a crew member (or the office) may set on a ticket. Everything
 // else — status, the approval stamps, the QuickBooks link — is server-owned.
 export const EDITABLE_FIELDS = [
-  'customer_id', 'business_id', 'customer_number', 'job_number', 'day_number',
-  'phase_code', 'claim_number', 'unit_number', 'fsr', 'job_date',
+  'customer_id', 'business_id', 'customer_number', 'job_number', 'job_name',
+  'day_number', 'phase_code', 'claim_number', 'unit_number', 'equipment_type',
+  'fsr', 'job_date',
   'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate',
   'tonnage', 'tonnage_type', 'ticket_photo_path', 'short_ticket_path',
   'signature_path', 'contractor_id', 'notes',
@@ -153,9 +156,11 @@ export function billableUnit(wo: Pick<WorkOrder, 'tonnage' | 'tonnage_type'>): s
 export function ticketDescription(wo: WorkOrder): string {
   return [
     wo.job_number ? `Job ${wo.job_number}` : null,
+    wo.job_name || null,
     wo.day_number ? `Day ${wo.day_number}` : null,
     wo.phase_code ? `Phase ${wo.phase_code}` : null,
     wo.unit_number ? `Unit ${wo.unit_number}` : null,
+    wo.equipment_type || null,
     wo.claim_number ? `Claim ${wo.claim_number}` : null,
     wo.fsr ? `FSR ${wo.fsr}` : null,
     wo.job_date,

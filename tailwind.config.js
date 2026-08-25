@@ -7,27 +7,27 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Stallion: deep steel blue primary (headers, buttons), warm gold as
-        // the accent stripe and highlight. Swap these for the real brand
-        // palette — every screen reads its colors from here.
+        // Stallion Tank: taken from the logo — near-black for headers and
+        // buttons, the logo's deep red as the accent stripe and highlight.
+        // Every screen reads its colors from here.
         brand: {
-          50:  '#E8F0F6',  // very light blue tint
-          100: '#C7DBE9',
-          200: '#9CBFD6',
-          300: '#6F9FC0',
-          400: '#4A83AA',
-          500: '#2E6B95',
-          600: '#1C557C',
-          700: '#0F3D5C',  // primary CTA (good contrast with white text)
-          800: '#0B2F47',
-          900: '#071F30',  // dark header backgrounds
+          50:  '#F5F5F5',  // very light grey tint
+          100: '#E6E6E7',
+          200: '#CBCBCD',
+          300: '#A3A3A6',
+          400: '#737376',
+          500: '#54544F',
+          600: '#3D3D3E',
+          700: '#242425',  // primary CTA (near-black, white text on top)
+          800: '#171718',
+          900: '#0C0C0D',  // dark header backgrounds
         },
         accent: {
-          50:  '#FDF6E7',  // light gold tint
-          300: '#F0CE86',
-          400: '#E0A83C',  // the stripe across the top of the nav
-          500: '#C88F26',
-          700: '#9A6C15',
+          50:  '#FCEDED',  // light red tint
+          300: '#DE8A88',
+          400: '#8E1414',  // the logo's red — stripe across the top of the nav
+          500: '#701010',
+          700: '#4E0A0A',
         },
       },
     },

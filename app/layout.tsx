@@ -8,14 +8,14 @@ import FloatingButton from '@/components/FloatingButton';
 import LocationReporter from '@/components/LocationReporter';
 
 export const metadata: Metadata = {
-  title: 'Stallion Field Tickets',
-  description: 'Order tracking and delivery management',
+  title: 'Stallion Tank — Field Tickets',
+  description: 'Field tickets, approvals, and invoicing for hauling crews.',
   manifest: '/manifest.webmanifest',
   // iOS "Add to Home Screen" treats this app as a standalone PWA (no
-  // Safari chrome) with the Stallion icon and our app title.
+  // Safari chrome) with the Stallion Tank icon and our app title.
   appleWebApp: {
     capable: true,
-    title: 'Stallion',
+    title: 'Stallion Tank',
     statusBarStyle: 'default',
   },
   icons: {
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0F3D5C',
+  themeColor: '#0C0C0D',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

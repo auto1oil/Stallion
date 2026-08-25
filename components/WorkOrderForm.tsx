@@ -22,6 +22,12 @@ type Rate = { job_number: string; phase_code: string | null; rate: number; rate_
 type Draft = Record<string, string>;
 
 const TONNAGE_TYPES = ['', 'Dirt', 'Gravel', 'Asphalt', 'Debris', 'Water', 'Other'];
+// Suggestions only — the field is free text, so a unit that isn't listed
+// still gets typed in rather than being blocked.
+const EQUIPMENT_TYPES = [
+  'Belly Dump', 'End Dump', 'Side Dump', 'Side Dump Double', 'Super Dump',
+  'Water Truck', 'Lowboy', 'Excavator', 'Loader', 'Dozer', 'Blade', 'Skid Steer',
+];
 
 function toDraft(wo: Partial<WorkOrder> | null): Draft {
   const v = (x: unknown) => (x === null || x === undefined ? '' : String(x));
@@ -29,10 +35,12 @@ function toDraft(wo: Partial<WorkOrder> | null): Draft {
     customer_id: v(wo?.customer_id),
     customer_number: v(wo?.customer_number),
     job_number: v(wo?.job_number),
+    job_name: v(wo?.job_name),
     day_number: v(wo?.day_number),
     phase_code: v(wo?.phase_code),
     claim_number: v(wo?.claim_number),
     unit_number: v(wo?.unit_number),
+    equipment_type: v(wo?.equipment_type),
     fsr: v(wo?.fsr),
     job_date: v(wo?.job_date) || new Date().toISOString().slice(0, 10),
     start_at: toLocalInput(wo?.start_at ?? null),
@@ -232,6 +240,9 @@ export default function WorkOrderForm({
           <label><span className={label}>Job #</span>
             <input value={draft.job_number} onChange={(e) => set('job_number', e.target.value)} disabled={locked} className={input} />
           </label>
+          <label className="col-span-2"><span className={label}>Job name</span>
+            <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={locked} className={input} />
+          </label>
           <label><span className={label}>Day #</span>
             <input value={draft.day_number} onChange={(e) => set('day_number', e.target.value)} disabled={locked} className={input} />
           </label>
@@ -243,6 +254,12 @@ export default function WorkOrderForm({
           </label>
           <label><span className={label}>Unit # (truck)</span>
             <input value={draft.unit_number} onChange={(e) => set('unit_number', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Equipment type</span>
+            <input value={draft.equipment_type} onChange={(e) => set('equipment_type', e.target.value)} disabled={locked} className={input} list="equipment-types" />
+            <datalist id="equipment-types">
+              {EQUIPMENT_TYPES.map((t) => <option key={t} value={t} />)}
+            </datalist>
           </label>
           <label><span className={label}>FSR</span>
             <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} disabled={locked} className={input} />
