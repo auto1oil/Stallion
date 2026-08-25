@@ -42,9 +42,9 @@ export const featureKey = (group: FeatureGroup, href: string) => `${group}:${hre
 
 export const FEATURES: Feature[] = [
   // Admin
-  { group: 'admin', key: 'admin:/work-orders', label: 'Work Orders' },
-  { group: 'admin', key: 'admin:/work-orders/approve', label: 'Approve' },
-  { group: 'admin', key: 'admin:/admin', label: 'Tickets' },
+  { group: 'admin', key: 'admin:/work-orders/orders', label: 'Orders' },
+  { group: 'admin', key: 'admin:/work-orders', label: 'Tickets' },
+  { group: 'admin', key: 'admin:/admin', label: 'Deliveries' },
   { group: 'admin', key: 'admin:/admin/delivery-log', label: 'Delivery Log' },
   { group: 'admin', key: 'admin:/haulers', label: 'Haulers' },
   { group: 'admin', key: 'admin:/admin/customers', label: 'Customers' },
@@ -55,8 +55,8 @@ export const FEATURES: Feature[] = [
   { group: 'admin', key: 'admin:/admin/hours', label: 'Time Clock' },
   { group: 'admin', key: 'admin:/admin/users', label: 'Users' },
   // Office
-  { group: 'office', key: 'office:/work-orders', label: 'Work Orders' },
-  { group: 'office', key: 'office:/work-orders/approve', label: 'Approve' },
+  { group: 'office', key: 'office:/work-orders/orders', label: 'Orders' },
+  { group: 'office', key: 'office:/work-orders', label: 'Tickets' },
   { group: 'office', key: 'office:/haulers', label: 'Haulers' },
   { group: 'office', key: 'office:/driver/customers', label: 'Customers' },
   { group: 'office', key: 'office:/driver/hours', label: 'Hours' },
@@ -65,7 +65,7 @@ export const FEATURES: Feature[] = [
   // Driver / crew
   { group: 'driver', key: 'driver:/tickets', label: 'My Tickets' },
   { group: 'driver', key: 'driver:/tickets/new', label: 'New Ticket' },
-  { group: 'driver', key: 'driver:/driver', label: 'Tickets' },
+  { group: 'driver', key: 'driver:/driver', label: 'Deliveries' },
   { group: 'driver', key: 'driver:/driver/delivery-log', label: 'Delivery Log' },
   { group: 'driver', key: 'driver:/driver/customers', label: 'Customers' },
   { group: 'driver', key: 'driver:/driver/hours', label: 'Hours' },

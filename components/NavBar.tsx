@@ -61,10 +61,10 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   }
 
   const adminLinks = [
-    { href: '/work-orders',           label: 'Work Orders' },
-    { href: '/work-orders/approve',   label: 'Approve' },
+    { href: '/work-orders/orders',    label: 'Orders' },
+    { href: '/work-orders',           label: 'Tickets' },
     { href: '/haulers',               label: 'Haulers' },
-    { href: '/admin',                 label: 'Tickets' },
+    { href: '/admin',                 label: 'Deliveries' },
     { href: '/admin/delivery-log',    label: 'Delivery Log' },
     { href: '/admin/customers',       label: 'Customers' },
     { href: '/admin/dashboard',       label: 'Dashboard' },
@@ -74,8 +74,8 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   ];
   // Office reviews + invoices tickets; it doesn't run the rest of the shop.
   const officeLinks = [
-    { href: '/work-orders',         label: 'Work Orders' },
-    { href: '/work-orders/approve', label: 'Approve' },
+    { href: '/work-orders/orders',  label: 'Orders' },
+    { href: '/work-orders',         label: 'Tickets' },
     { href: '/haulers',             label: 'Haulers' },
     { href: '/driver/customers',    label: 'Customers' },
     { href: '/driver/hours',        label: 'Hours' },
@@ -86,7 +86,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   const driverLinks = [
     { href: '/tickets',               label: 'My Tickets' },
     { href: '/tickets/new',           label: 'New Ticket' },
-    { href: '/driver',                label: 'Tickets' },
+    { href: '/driver',                label: 'Deliveries' },
     { href: '/driver/delivery-log',   label: 'Delivery Log' },
     { href: '/driver/customers',      label: 'Customers' },
     { href: '/driver/hours',          label: 'Hours' },
@@ -137,7 +137,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   const approvalsHref =
     role === 'contractor' ? '/contractor/approvals'
     : role === 'funder' ? '/funder/approve'
-    : '/work-orders/approve';
+    : '/work-orders';
   const group = navGroupForRole(role);
   const links = group ? baseLinks.filter((l) => !hidden.has(featureKey(group, l.href))) : baseLinks;
 

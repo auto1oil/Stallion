@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import AdminSubNav from '@/components/AdminSubNav';
 import { createClient } from '@/lib/supabase-browser';
 import {
   ORDER_STATUS_LABEL, ORDER_STATUS_TONE, orderSpan,
@@ -62,16 +61,6 @@ export default function OrdersPage() {
 
   return (
     <div>
-      <AdminSubNav
-        tabs={[
-          { href: '/work-orders', label: 'All tickets' },
-          { href: '/work-orders/approve', label: 'Approve' },
-          { href: '/work-orders/orders', label: 'Orders' },
-          { href: '/work-orders/setup', label: 'Setup' },
-        ]}
-        roles={['office', 'admin', 'master_admin']}
-      />
-
       <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
         <h1 className="text-2xl font-semibold">Orders</h1>
         <Link

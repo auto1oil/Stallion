@@ -1,6 +1,5 @@
 'use client';
 import { useState } from 'react';
-import Link from 'next/link';
 import AdminSubNav from '@/components/AdminSubNav';
 import WorkOrderList from '@/components/WorkOrderList';
 
@@ -39,22 +38,11 @@ export default function WorkOrdersPage() {
         tabs={[
           { href: '/work-orders', label: 'All tickets' },
           { href: '/work-orders/approve', label: 'Approve' },
-          { href: '/work-orders/orders', label: 'Orders' },
           { href: '/work-orders/setup', label: 'Setup' },
         ]}
         roles={['office', 'admin', 'master_admin']}
       />
-      {/* Create order sits top-right, the same place the delivery board
-          puts its Upload invoice pill. */}
-      <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-        <h1 className="text-2xl font-semibold">Work orders</h1>
-        <Link
-          href="/work-orders/orders/new"
-          className="px-3 py-2 text-sm bg-accent-400 text-white rounded-md hover:bg-accent-500 font-medium"
-        >
-          Create order
-        </Link>
-      </div>
+      <h1 className="text-2xl font-semibold mb-3">Tickets</h1>
 
       <div className="flex gap-2 mb-4 flex-wrap">
         {FILTERS.map((f) => (
