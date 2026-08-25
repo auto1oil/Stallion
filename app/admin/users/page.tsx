@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
+import AddUserPanel from '@/components/AddUserPanel';
 
 type Role = 'admin' | 'driver' | 'contractor' | 'funder' | 'hauler' | 'master_admin' | 'customer' | 'office' | 'mechanic' | 'labor';
 
@@ -50,13 +51,9 @@ export default function UsersPage() {
   const [pendingCounties, setPendingCounties] = useState<Record<string, string[]>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   // Add-user form
-  const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState<{ full_name: string; email: string; role: Role; phone: string; hauler_id: string }>({ full_name: '', email: '', role: 'driver', phone: '', hauler_id: '' });
-  // The hauling companies a 'hauler' login can be attached to.
+
+  // Used by the role editor below to attach a hauler login to its company.
   const [haulers, setHaulers] = useState<{ id: string; name: string }[]>([]);
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [addResult, setAddResult] = useState<{ email: string; password: string; role: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -106,27 +103,6 @@ export default function UsersPage() {
       }
     } finally {
       setMatching(false);
-    }
-  }
-
-  async function addUser() {
-    setAdding(true); setAddError(null); setAddResult(null);
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(addForm),
-      });
-      const j = await res.json();
-      if (!res.ok || !j.ok) { setAddError(j.error || 'Could not create the user.'); return; }
-      setAddResult({ email: j.email, password: j.password, role: j.role });
-      setAddForm({ full_name: '', email: '', role: 'driver', phone: '', hauler_id: '' });
-      setShowAdd(false);
-      load();
-    } catch {
-      setAddError('Network error — please try again.');
-    } finally {
-      setAdding(false);
     }
   }
 
@@ -230,110 +206,10 @@ export default function UsersPage() {
           A user's <strong>QuickBooks Class</strong> stamps the invoices raised
           against their work.
         </p>
-        <button
-          onClick={() => { setShowAdd((v) => !v); setAddError(null); setAddResult(null); }}
-          className="mt-3 px-3 py-2 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium"
-        >
-          {showAdd ? 'Cancel' : '+ Add user'}
-        </button>
+        <div className="mt-3">
+          <AddUserPanel onAdded={load} />
+        </div>
       </div>
-
-      {showAdd && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 space-y-3 max-w-md">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="text-xs text-gray-600">Name
-              <input
-                type="text"
-                value={addForm.full_name}
-                onChange={(e) => setAddForm({ ...addForm, full_name: e.target.value })}
-                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
-              />
-            </label>
-            <label className="text-xs text-gray-600">Role
-              <select
-                value={addForm.role}
-                onChange={(e) => setAddForm({ ...addForm, role: e.target.value as Role })}
-                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
-              >
-                <option value="driver">Driver / crew</option>
-                <option value="office">Office</option>
-                <option value="contractor">Contractor</option>
-                <option value="funder">Funder</option>
-                <option value="hauler">Hauler</option>
-                <option value="admin">Admin</option>
-                <option value="mechanic">Mechanic</option>
-                <option value="labor">Labor</option>
-              </select>
-            </label>
-            {addForm.role === 'hauler' && (
-              <label className="text-xs text-gray-600">Hauling company
-                <select
-                  value={addForm.hauler_id}
-                  onChange={(e) => setAddForm({ ...addForm, hauler_id: e.target.value })}
-                  className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
-                >
-                  <option value="">— Pick a company —</option>
-                  {haulers.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-                </select>
-                {haulers.length === 0 && (
-                  <span className="block mt-1 text-gray-500">
-                    No haulers set up yet — add the company under Haulers first.
-                  </span>
-                )}
-              </label>
-            )}
-            <label className="text-xs text-gray-600">Email
-              <input
-                type="email"
-                value={addForm.email}
-                onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
-                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
-              />
-            </label>
-            <label className="text-xs text-gray-600">Phone (optional)
-              <input
-                type="tel"
-                value={addForm.phone}
-                placeholder="+18015551234"
-                onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })}
-                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
-              />
-            </label>
-          </div>
-          {addError && <p className="text-xs text-red-600">{addError}</p>}
-          <button
-            onClick={addUser}
-            disabled={adding || !addForm.email.trim()}
-            className="px-3 py-2 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 disabled:opacity-50 font-medium"
-          >
-            {adding ? 'Creating…' : 'Create user'}
-          </button>
-        </div>
-      )}
-
-      {addResult && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4 max-w-md text-sm">
-          <p className="font-medium text-emerald-900 mb-1">User created ({addResult.role})</p>
-          <p className="text-emerald-900">
-            Give them these details — they'll set their own password on first sign-in:
-          </p>
-          <div className="mt-2 font-mono text-xs bg-white border border-emerald-200 rounded p-2 space-y-0.5">
-            <div>Email: {addResult.email}</div>
-            <div>Temp password: {addResult.password}</div>
-          </div>
-          <div className="mt-2 flex gap-3">
-            <button
-              onClick={() => navigator.clipboard?.writeText(`Email: ${addResult.email}\nTemp password: ${addResult.password}`)}
-              className="text-xs text-brand-700 hover:underline"
-            >
-              Copy
-            </button>
-            <button onClick={() => setAddResult(null)} className="text-xs text-gray-500 hover:underline">
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
 
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>

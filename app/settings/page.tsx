@@ -7,6 +7,7 @@ import Avatar from '@/components/Avatar';
 import AvatarEditor from '@/components/AvatarEditor';
 import SupportChatSettings from '@/components/SupportChatSettings';
 import { loadFab, saveFab, FAB_ACTIONS, type FabConfig } from '@/lib/floating-button';
+import AddUserPanel from '@/components/AddUserPanel';
 
 type AlertMode = 'sound' | 'vibrate' | 'silent';
 
@@ -485,6 +486,23 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {(role === 'admin' || role === 'master_admin') && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mt-5">
+          <h2 className="font-semibold mb-1">Users</h2>
+          <p className="text-sm text-gray-500 mb-3">
+            Add someone to the app. They get a temporary password, shown once,
+            and pick their own on first sign-in.
+          </p>
+          <AddUserPanel />
+          <Link
+            href="/admin/users"
+            className="inline-block mt-3 text-sm text-brand-700 hover:underline"
+          >
+            Manage everyone &amp; their roles →
+          </Link>
+        </div>
+      )}
 
       {(role === 'admin' || role === 'master_admin') && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 mt-5">
