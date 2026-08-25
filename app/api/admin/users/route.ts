@@ -10,7 +10,7 @@ import { createAdminClient } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 
-const ROLES = ['driver', 'contractor', 'funder', 'admin', 'office', 'mechanic', 'labor'] as const;
+const ROLES = ['driver', 'contractor', 'funder', 'hauler', 'admin', 'office', 'mechanic', 'labor'] as const;
 type NewRole = (typeof ROLES)[number];
 
 function tempPassword(): string {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Admins only.' }, { status: 403 });
   }
 
-  let body: { email?: string; full_name?: string; role?: string; phone?: string };
+  let body: { email?: string; full_name?: string; role?: string; phone?: string; hauler_id?: string };
   try { body = await req.json(); } catch { body = {}; }
 
   const email = (body.email || '').trim().toLowerCase();
@@ -58,7 +58,15 @@ export async function POST(req: Request) {
   // chosen role + details, and keep the force-password-change flag on.
   const { error: upErr } = await admin
     .from('profiles')
-    .update({ role, full_name: full_name || null, phone: phone || null, must_change_password: true })
+    .update({
+      role,
+      full_name: full_name || null,
+      phone: phone || null,
+      // Only a hauler login carries a company, and it is what scopes them to
+      // their own fleet and loads — a hauler without one sees nothing.
+      hauler_id: role === 'hauler' ? (body.hauler_id || null) : null,
+      must_change_password: true,
+    })
     .eq('id', created.user.id);
   if (upErr) {
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });

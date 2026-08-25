@@ -82,7 +82,7 @@ update public.profiles set role = 'office' where role = 'salesman';
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check
   check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin',
-                  'customer', 'office', 'mechanic', 'labor'));
+                  'customer', 'office', 'mechanic', 'labor', 'hauler'));
 
 -- ---- Trucking ------------------------------------------------------------
 -- Freight invoicing is gone; its fuel surcharge was driven by the EIA diesel

@@ -9,11 +9,12 @@ export type Role =
   | 'driver'
   | 'contractor'
   | 'funder'
+  | 'hauler'
   | 'mechanic'
   | 'labor'
   | 'customer';
 
-export type FeatureGroup = 'admin' | 'office' | 'driver' | 'contractor' | 'funder';
+export type FeatureGroup = 'admin' | 'office' | 'driver' | 'contractor' | 'funder' | 'hauler';
 export type Feature = { key: string; label: string; group: FeatureGroup };
 
 export const FEATURE_GROUP_TITLES: { group: FeatureGroup; title: string }[] = [
@@ -22,6 +23,7 @@ export const FEATURE_GROUP_TITLES: { group: FeatureGroup; title: string }[] = [
   { group: 'driver', title: 'Driver / crew tabs' },
   { group: 'contractor', title: 'Contractor tabs' },
   { group: 'funder', title: 'Funder tabs' },
+  { group: 'hauler', title: 'Hauler tabs' },
 ];
 
 // Map a profile role to its nav group key (admin + master_admin share the
@@ -32,6 +34,7 @@ export function navGroupForRole(role: string): FeatureGroup | null {
   if (role === 'driver' || role === 'mechanic') return 'driver';
   if (role === 'contractor') return 'contractor';
   if (role === 'funder') return 'funder';
+  if (role === 'hauler') return 'hauler';
   return null;
 }
 
@@ -43,6 +46,7 @@ export const FEATURES: Feature[] = [
   { group: 'admin', key: 'admin:/work-orders/approve', label: 'Approve' },
   { group: 'admin', key: 'admin:/admin', label: 'Orders' },
   { group: 'admin', key: 'admin:/admin/delivery-log', label: 'Delivery Log' },
+  { group: 'admin', key: 'admin:/haulers', label: 'Haulers' },
   { group: 'admin', key: 'admin:/admin/customers', label: 'Customers' },
   { group: 'admin', key: 'admin:/admin/forms', label: 'Forms' },
   { group: 'admin', key: 'admin:/admin/documents', label: 'Documents' },
@@ -53,6 +57,7 @@ export const FEATURES: Feature[] = [
   // Office
   { group: 'office', key: 'office:/work-orders', label: 'Work Orders' },
   { group: 'office', key: 'office:/work-orders/approve', label: 'Approve' },
+  { group: 'office', key: 'office:/haulers', label: 'Haulers' },
   { group: 'office', key: 'office:/driver/customers', label: 'Customers' },
   { group: 'office', key: 'office:/driver/hours', label: 'Hours' },
   { group: 'office', key: 'office:/tasks', label: 'Tasks' },
@@ -74,4 +79,9 @@ export const FEATURES: Feature[] = [
   // Funder
   { group: 'funder', key: 'funder:/funder', label: 'Orders' },
   { group: 'funder', key: 'funder:/funder/approve', label: 'Approve Funds' },
+  // Hauler
+  { group: 'hauler', key: 'hauler:/hauler', label: 'Loads' },
+  { group: 'hauler', key: 'hauler:/hauler/equipment', label: 'Trucks & Equipment' },
+  { group: 'hauler', key: 'hauler:/hauler/availability', label: 'Availability' },
+  { group: 'hauler', key: 'hauler:/messages', label: 'Messages' },
 ];

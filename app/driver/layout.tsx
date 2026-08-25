@@ -22,6 +22,7 @@ export default async function DriverLayout({ children }: { children: React.React
     redirect('/admin');
   }
   if (profile.role === 'contractor') redirect('/contractor');
+  if (profile.role === 'hauler') redirect('/hauler');
   if (profile.role === 'funder') redirect('/funder');
   if (profile.role === 'customer') redirect('/no-access');
 

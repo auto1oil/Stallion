@@ -1,5 +1,6 @@
-// The contractor's side: their crews' tickets, the hours and days those crews
-// submitted, the job rates they're being paid at, and their own sign-off.
+// The office's side of haulers: the directory of hauling companies, each
+// company's fleet and availability, and the loads dispatch has put out to
+// them. A hauler's own screens live under /hauler (singular).
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase-server';
@@ -7,9 +8,9 @@ import NavBar from '@/components/NavBar';
 import FeatureGuard from '@/components/FeatureGuard';
 import { navGroupForRole, type Role } from '@/lib/feature-catalog';
 
-const ALLOWED = ['contractor', 'admin', 'master_admin'];
+const ALLOWED = ['office', 'admin', 'master_admin'];
 
-export default async function ContractorLayout({ children }: { children: React.ReactNode }) {
+export default async function HaulersLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
@@ -25,7 +26,7 @@ export default async function ContractorLayout({ children }: { children: React.R
     if (profile.role === 'customer') redirect('/no-access');
     if (profile.role === 'hauler') redirect('/hauler');
     if (profile.role === 'funder') redirect('/funder');
-    if (profile.role === 'office') redirect('/work-orders');
+    if (profile.role === 'contractor') redirect('/contractor');
     redirect('/tickets');
   }
 

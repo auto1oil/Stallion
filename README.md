@@ -37,6 +37,7 @@ typed in and trusted.
 | `office` | `/work-orders` | Review, edit, approve, invoice in QuickBooks |
 | `contractor` | `/contractor` | Their crews' tickets, hours, rates; sign off; upload short tickets |
 | `funder` | `/funder` | Every order, truck count per job, approve funds |
+| `hauler` | `/hauler` | Their loads, their fleet, the dates they're blocked out |
 | `admin` / `master_admin` | everything | Full access, users, settings |
 | `mechanic` / `labor` | time clock | Clock in/out, tasks, reminders |
 
@@ -130,7 +131,7 @@ If you're pointing this at a Supabase project that already ran the old Auto 1
 schema, run `migrations/001-drop-removed-features.sql` **after** deploying this
 code. It drops the salesman, fuel, inventory, bills, card-charge, trucking and
 customer-storefront tables, moves any remaining `salesman` users to `office`,
-and widens the role check to include `contractor` and `funder`. On a fresh
+and widens the role check to include `contractor`, `funder` and `hauler`. On a fresh
 project it is a no-op.
 
 ## Repo map
@@ -141,6 +142,9 @@ project it is a no-op.
 | `app/work-orders` | The office's queue, ticket review, setup |
 | `app/contractor` | Contractor work orders, approvals, rates |
 | `app/funder` | Funder orders + approve funds |
+| `app/haulers` | The office's hauler directory, fleets, and dispatch |
+| `app/hauler` | A hauler's own loads, equipment and availability |
+| `lib/haulers.ts` | Load statuses, availability math, the editable allowlist |
 | `app/api/work-orders` | Ticket CRUD, approvals, invoicing |
 | `app/admin` | Dispatch board, customers, hours, users, PO log, QuickBooks |
 | `lib/work-orders.ts` | Hour/amount math and the QuickBooks invoice routine |

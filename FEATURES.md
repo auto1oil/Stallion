@@ -38,6 +38,22 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 - **Short ticket upload** on any of their tickets
 - **Rates** — the agreed rate per job and phase, read-only
 
+## 🚛 For haulers (`/hauler`) and the office (`/haulers`)
+- **Hauler directory** — every company set up to haul for Stallion, with the
+  contact, MC/DOT numbers, insurance expiry (flagged red once it's past), and
+  the count of trucks each one has on file
+- **Send a load** to a hauler — job, date, start time, pickup and drop off,
+  equipment needed, rate — and they get a notification and a push straight away
+- **The hauler accepts or declines** from their phone, naming which of their
+  units is taking it; a decline carries a reason back to the office
+- **Their fleet** — haulers add and retire their own trucks and equipment, and
+  the office picks from that same list when sending a load
+- **Availability** — haulers block out the dates they can't run, by unit or for
+  the whole company, and see the next fortnight as a green/red strip. The
+  office sees the same thing before sending work
+- A hauler can **read** their loads but never write them: accept and decline go
+  through the server, so the rate they accepted at is the rate that was sent
+
 ## 💵 For the funder (`/funder`)
 - **Orders** — every ticket in the system, grouped by job with the **truck
   count** per job, ticket count, and dollar total

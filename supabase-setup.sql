@@ -2061,5 +2061,210 @@ create policy "wt staff delete" on storage.objects
 
 
 -- ==========================================================================
+-- 40. Haulers — the hauling companies that run loads for Stallion
+-- ==========================================================================
+-- A hauler is a company, not a person. Its people sign in with role 'hauler'
+-- and a profiles.hauler_id pointing at the company, so everything a hauler
+-- can see is scoped by "same company as me" rather than "rows I created".
+--
+-- Four tables:
+--   haulers               the company record the office maintains
+--   hauler_equipment      the trucks and equipment that company owns
+--   hauler_availability   date ranges a unit is free or blocked out
+--   hauler_loads          a load offered to / assigned to a hauler
+-- ==========================================================================
+
+create table if not exists public.haulers (
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  contact_name       text,
+  phone              text,
+  email              text,
+  address            text,
+  mc_number          text,
+  dot_number         text,
+  insurance_expires  date,
+  active             boolean not null default true,
+  notes              text,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+create unique index if not exists haulers_name_key on public.haulers (lower(name));
+create index if not exists haulers_active_idx on public.haulers (active, name);
+
+-- A hauler login belongs to one company. Null for everyone else.
+alter table public.profiles
+  add column if not exists hauler_id uuid references public.haulers(id) on delete set null;
+create index if not exists profiles_hauler_idx on public.profiles (hauler_id);
+
+-- 'hauler' joins the role list. Re-running this is safe: the constraint is
+-- dropped and rebuilt with the full set every time.
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check
+  check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin',
+                  'customer', 'office', 'mechanic', 'labor', 'hauler'));
+
+-- ---- Equipment ----------------------------------------------------------
+create table if not exists public.hauler_equipment (
+  id             uuid primary key default gen_random_uuid(),
+  hauler_id      uuid not null references public.haulers(id) on delete cascade,
+  unit_number    text,
+  equipment_type text,
+  description    text,
+  capacity       text,          -- e.g. "24 ton", "40 yd"
+  active         boolean not null default true,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index if not exists hauler_equipment_hauler_idx
+  on public.hauler_equipment (hauler_id, active);
+
+-- ---- Availability -------------------------------------------------------
+-- One row per window. equipment_id null means the whole company (e.g. shut
+-- down for a week); a row with equipment_id blocks just that unit.
+create table if not exists public.hauler_availability (
+  id           uuid primary key default gen_random_uuid(),
+  hauler_id    uuid not null references public.haulers(id) on delete cascade,
+  equipment_id uuid references public.hauler_equipment(id) on delete cascade,
+  start_date   date not null,
+  end_date     date not null,
+  status       text not null default 'available'
+    check (status in ('available', 'blocked')),
+  note         text,
+  created_by   uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now(),
+  constraint hauler_availability_range check (end_date >= start_date)
+);
+create index if not exists hauler_availability_hauler_idx
+  on public.hauler_availability (hauler_id, start_date, end_date);
+
+-- ---- Loads --------------------------------------------------------------
+-- A load can be offered before any ticket exists, so it carries its own job
+-- details and only links to a work order once one is filled out against it.
+create table if not exists public.hauler_loads (
+  id             uuid primary key default gen_random_uuid(),
+  hauler_id      uuid not null references public.haulers(id) on delete cascade,
+  equipment_id   uuid references public.hauler_equipment(id) on delete set null,
+  work_order_id  uuid references public.work_orders(id) on delete set null,
+
+  job_number     text,
+  job_name       text,
+  phase_code     text,
+  equipment_type text,          -- what the job needs, if no unit is named yet
+  job_date       date,
+  start_time     text,
+  pickup         text,
+  dropoff        text,
+  rate           numeric(12,2),
+  rate_unit      text,
+  notes          text,
+
+  status         text not null default 'offered'
+    check (status in ('offered', 'accepted', 'declined', 'assigned',
+                      'completed', 'cancelled')),
+  assigned_by    uuid references public.profiles(id) on delete set null,
+  responded_by   uuid references public.profiles(id) on delete set null,
+  responded_at   timestamptz,
+  decline_reason text,
+
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index if not exists hauler_loads_hauler_idx
+  on public.hauler_loads (hauler_id, status, job_date desc);
+create index if not exists hauler_loads_job_idx on public.hauler_loads (job_number);
+
+-- keep updated_at fresh on all three
+drop trigger if exists trg_haulers_touch on public.haulers;
+create trigger trg_haulers_touch before update on public.haulers
+  for each row execute function public.touch_updated_at();
+drop trigger if exists trg_hauler_equipment_touch on public.hauler_equipment;
+create trigger trg_hauler_equipment_touch before update on public.hauler_equipment
+  for each row execute function public.touch_updated_at();
+drop trigger if exists trg_hauler_loads_touch on public.hauler_loads;
+create trigger trg_hauler_loads_touch before update on public.hauler_loads
+  for each row execute function public.touch_updated_at();
+
+-- ---- Who am I? ----------------------------------------------------------
+-- The hauler company of the signed-in user. Used by every hauler policy
+-- below; security definer so reading it doesn't recurse into profiles' RLS.
+create or replace function public.my_hauler_id()
+returns uuid language sql stable security definer set search_path = public as $$
+  select hauler_id from public.profiles where id = auth.uid();
+$$;
+grant execute on function public.my_hauler_id() to authenticated;
+
+-- ---- RLS ----------------------------------------------------------------
+grant select, insert, update, delete on public.haulers            to authenticated;
+grant select, insert, update, delete on public.hauler_equipment   to authenticated;
+grant select, insert, update, delete on public.hauler_availability to authenticated;
+grant select, insert, update, delete on public.hauler_loads       to authenticated;
+
+alter table public.haulers             enable row level security;
+alter table public.hauler_equipment    enable row level security;
+alter table public.hauler_availability enable row level security;
+alter table public.hauler_loads        enable row level security;
+
+-- haulers: staff manage the directory; a hauler reads only its own company.
+drop policy if exists "haulers staff manage" on public.haulers;
+create policy "haulers staff manage" on public.haulers
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+drop policy if exists "haulers read own" on public.haulers;
+create policy "haulers read own" on public.haulers
+  for select to authenticated
+  using (id = public.my_hauler_id());
+
+-- Dispatch needs to see who's out there; funders see who ran the work.
+drop policy if exists "haulers staff read" on public.haulers;
+create policy "haulers staff read" on public.haulers
+  for select to authenticated
+  using (public.has_role(array['driver', 'contractor', 'funder']));
+
+-- equipment: staff manage any; a hauler manages its own fleet.
+drop policy if exists "hauler equip staff manage" on public.hauler_equipment;
+create policy "hauler equip staff manage" on public.hauler_equipment
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+drop policy if exists "hauler equip own manage" on public.hauler_equipment;
+create policy "hauler equip own manage" on public.hauler_equipment
+  for all to authenticated
+  using (hauler_id = public.my_hauler_id())
+  with check (hauler_id = public.my_hauler_id());
+
+-- availability: same shape — the office can block a hauler out too.
+drop policy if exists "hauler avail staff manage" on public.hauler_availability;
+create policy "hauler avail staff manage" on public.hauler_availability
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+drop policy if exists "hauler avail own manage" on public.hauler_availability;
+create policy "hauler avail own manage" on public.hauler_availability
+  for all to authenticated
+  using (hauler_id = public.my_hauler_id())
+  with check (hauler_id = public.my_hauler_id());
+
+-- loads: the office offers and assigns them. A hauler READS its own loads but
+-- cannot write them — accept/decline goes through the API route, the same way
+-- ticket approvals do, so a hauler can never set its own rate or status.
+drop policy if exists "hauler loads staff manage" on public.hauler_loads;
+create policy "hauler loads staff manage" on public.hauler_loads
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+drop policy if exists "hauler loads read own" on public.hauler_loads;
+create policy "hauler loads read own" on public.hauler_loads
+  for select to authenticated
+  using (hauler_id = public.my_hauler_id());
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

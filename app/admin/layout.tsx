@@ -17,6 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!profile || (profile.role !== 'admin' && profile.role !== 'master_admin')) {
     if (profile?.role === 'customer') redirect('/no-access');
     if (profile?.role === 'contractor') redirect('/contractor');
+    if (profile?.role === 'hauler') redirect('/hauler');
     if (profile?.role === 'funder') redirect('/funder');
     if (profile?.role === 'office') redirect('/work-orders');
     if (profile?.role === 'labor') redirect('/driver/hours');

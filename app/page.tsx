@@ -15,6 +15,7 @@ export default async function Home() {
 
   if (profile?.role === 'admin' || profile?.role === 'master_admin') redirect('/admin');
   if (profile?.role === 'contractor') redirect('/contractor');
+  if (profile?.role === 'hauler') redirect('/hauler');
   if (profile?.role === 'funder') redirect('/funder');
   if (profile?.role === 'customer') redirect('/no-access');
   // Office reviews and invoices tickets. Labor is hourly staff, so their home

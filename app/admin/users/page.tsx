@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
 
-type Role = 'admin' | 'driver' | 'contractor' | 'funder' | 'master_admin' | 'customer' | 'office' | 'mechanic' | 'labor';
+type Role = 'admin' | 'driver' | 'contractor' | 'funder' | 'hauler' | 'master_admin' | 'customer' | 'office' | 'mechanic' | 'labor';
 
 type Profile = {
   id: string;
@@ -18,6 +18,9 @@ type Profile = {
   territory_counties: string[] | null;
   // QuickBooks Class for this user (drives P&L-by-Class per rep).
   qb_class: string | null;
+  // Which hauling company a 'hauler' login belongs to. Null for everyone
+  // else — it is what scopes a hauler to their own fleet and loads.
+  hauler_id: string | null;
 };
 
 const roleBadgeClass: Record<Role, string> = {
@@ -25,6 +28,7 @@ const roleBadgeClass: Record<Role, string> = {
   master_admin: 'bg-brand-50 text-brand-900',
   contractor: 'bg-emerald-100 text-emerald-900',
   funder: 'bg-indigo-100 text-indigo-900',
+  hauler: 'bg-teal-100 text-teal-900',
   driver: 'bg-gray-100 text-gray-700',
   customer: 'bg-gray-50 text-gray-500',
   office: 'bg-blue-100 text-blue-800',
@@ -47,7 +51,9 @@ export default function UsersPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   // Add-user form
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState<{ full_name: string; email: string; role: Role; phone: string }>({ full_name: '', email: '', role: 'driver', phone: '' });
+  const [addForm, setAddForm] = useState<{ full_name: string; email: string; role: Role; phone: string; hauler_id: string }>({ full_name: '', email: '', role: 'driver', phone: '', hauler_id: '' });
+  // The hauling companies a 'hauler' login can be attached to.
+  const [haulers, setHaulers] = useState<{ id: string; name: string }[]>([]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [addResult, setAddResult] = useState<{ email: string; password: string; role: string } | null>(null);
@@ -57,10 +63,13 @@ export default function UsersPage() {
     // Hide customers from this list — they're managed in /admin/customers.
     const { data } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role, phone, contact_email, territory_counties, qb_class')
+      .select('id, email, full_name, role, phone, contact_email, territory_counties, qb_class, hauler_id')
       .neq('role', 'customer')
       .order('full_name');
     setUsers((data as Profile[]) || []);
+    const { data: hs } = await supabase
+      .from('haulers').select('id, name').eq('active', true).order('name');
+    setHaulers((hs as { id: string; name: string }[]) || []);
     setPendingCounties({});
     setLoading(false);
   }
@@ -111,7 +120,7 @@ export default function UsersPage() {
       const j = await res.json();
       if (!res.ok || !j.ok) { setAddError(j.error || 'Could not create the user.'); return; }
       setAddResult({ email: j.email, password: j.password, role: j.role });
-      setAddForm({ full_name: '', email: '', role: 'driver', phone: '' });
+      setAddForm({ full_name: '', email: '', role: 'driver', phone: '', hauler_id: '' });
       setShowAdd(false);
       load();
     } catch {
@@ -125,6 +134,9 @@ export default function UsersPage() {
     await supabase.from('profiles').update({
       full_name: p.full_name,
       role: p.role,
+      // Only a hauler login carries a company; changing away from the role
+      // clears it so a stale link can't outlive the role that needed it.
+      hauler_id: p.role === 'hauler' ? (p.hauler_id || null) : null,
       phone: p.phone ? p.phone.trim() : null,
       contact_email: p.contact_email ? p.contact_email.trim() : null,
     }).eq('id', p.id);
@@ -247,11 +259,29 @@ export default function UsersPage() {
                 <option value="office">Office</option>
                 <option value="contractor">Contractor</option>
                 <option value="funder">Funder</option>
+                <option value="hauler">Hauler</option>
                 <option value="admin">Admin</option>
                 <option value="mechanic">Mechanic</option>
                 <option value="labor">Labor</option>
               </select>
             </label>
+            {addForm.role === 'hauler' && (
+              <label className="text-xs text-gray-600">Hauling company
+                <select
+                  value={addForm.hauler_id}
+                  onChange={(e) => setAddForm({ ...addForm, hauler_id: e.target.value })}
+                  className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded text-sm"
+                >
+                  <option value="">— Pick a company —</option>
+                  {haulers.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                </select>
+                {haulers.length === 0 && (
+                  <span className="block mt-1 text-gray-500">
+                    No haulers set up yet — add the company under Haulers first.
+                  </span>
+                )}
+              </label>
+            )}
             <label className="text-xs text-gray-600">Email
               <input
                 type="email"
@@ -473,6 +503,7 @@ export default function UsersPage() {
                                 <option value="office">Office</option>
                                 <option value="contractor">Contractor</option>
                                 <option value="funder">Funder</option>
+                                <option value="hauler">Hauler</option>
                                 <option value="admin">Admin</option>
                                 <option value="mechanic">Mechanic</option>
                                 <option value="labor">Labor</option>
@@ -481,6 +512,19 @@ export default function UsersPage() {
                                 )}
                               </select>
                             </div>
+                            {editing.role === 'hauler' && (
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Hauling company</label>
+                                <select
+                                  value={editing.hauler_id || ''}
+                                  onChange={(e) => setEditing({ ...editing, hauler_id: e.target.value || null })}
+                                  className="px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                >
+                                  <option value="">— Pick a company —</option>
+                                  {haulers.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                                </select>
+                              </div>
+                            )}
                             <div className="flex gap-2 pt-1">
                               <button onClick={() => saveBasic(editing)} className="px-3 py-1 text-sm bg-brand-700 text-white rounded hover:bg-brand-900">Save</button>
                               <button onClick={() => setEditing(null)} className="px-3 py-1 text-sm border border-gray-300 rounded">Cancel</button>

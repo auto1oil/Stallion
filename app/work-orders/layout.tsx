@@ -24,6 +24,7 @@ export default async function WorkOrdersLayout({ children }: { children: React.R
   if (!ALLOWED.includes(profile.role)) {
     if (profile.role === 'customer') redirect('/no-access');
     if (profile.role === 'contractor') redirect('/contractor');
+    if (profile.role === 'hauler') redirect('/hauler');
     if (profile.role === 'funder') redirect('/funder');
     redirect('/tickets');
   }

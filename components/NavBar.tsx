@@ -63,6 +63,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   const adminLinks = [
     { href: '/work-orders',           label: 'Work Orders' },
     { href: '/work-orders/approve',   label: 'Approve' },
+    { href: '/haulers',               label: 'Haulers' },
     { href: '/admin',                 label: 'Orders' },
     { href: '/admin/delivery-log',    label: 'Delivery Log' },
     { href: '/admin/customers',       label: 'Customers' },
@@ -75,6 +76,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   const officeLinks = [
     { href: '/work-orders',         label: 'Work Orders' },
     { href: '/work-orders/approve', label: 'Approve' },
+    { href: '/haulers',             label: 'Haulers' },
     { href: '/driver/customers',    label: 'Customers' },
     { href: '/driver/hours',        label: 'Hours' },
     { href: '/tasks',               label: 'Tasks' },
@@ -97,6 +99,13 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/contractor/rates',     label: 'Rates' },
     { href: '/messages',             label: 'Messages' },
   ];
+  // Haulers see only their own company's side of the app.
+  const haulerLinks = [
+    { href: '/hauler',              label: 'Loads' },
+    { href: '/hauler/equipment',    label: 'Trucks & Equipment' },
+    { href: '/hauler/availability', label: 'Availability' },
+    { href: '/messages',            label: 'Messages' },
+  ];
   const funderLinks = [
     { href: '/funder',         label: 'Orders' },
     { href: '/funder/approve', label: 'Approve Funds' },
@@ -116,6 +125,8 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
       ? contractorLinks
       : role === 'funder'
       ? funderLinks
+      : role === 'hauler'
+      ? haulerLinks
       : role === 'driver' || role === 'mechanic'
       ? driverLinks
       : hourlyLinks;
@@ -131,7 +142,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
 
   function isActive(href: string): boolean {
     if (!pathname) return false;
-    if (['/admin', '/driver', '/tickets', '/work-orders', '/contractor', '/funder'].includes(href)) {
+    if (['/admin', '/driver', '/tickets', '/work-orders', '/contractor', '/funder', '/haulers', '/hauler'].includes(href)) {
       return pathname === href;
     }
     return pathname === href || pathname.startsWith(href + '/');
