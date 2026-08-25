@@ -110,6 +110,7 @@ export default function WorkOrderForm({
   const [ticketPhoto, setTicketPhoto] = useState<string | null>(workOrder?.ticket_photo_path ?? null);
   const [shortTicket, setShortTicket] = useState<string | null>(workOrder?.short_ticket_path ?? null);
   const [signature, setSignature] = useState<string | null>(workOrder?.signature_path ?? null);
+  const [foremanSignature, setForemanSignature] = useState<string | null>(workOrder?.foreman_signature_path ?? null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [rates, setRates] = useState<Rate[]>([]);
   const [orders, setOrders] = useState<JobOrder[]>([]);
@@ -235,6 +236,7 @@ export default function WorkOrderForm({
       ticket_photo_path: ticketPhoto,
       short_ticket_path: shortTicket,
       signature_path: signature,
+      foreman_signature_path: foremanSignature,
       notes: draft.notes.trim() || null,
     };
   }
@@ -244,6 +246,7 @@ export default function WorkOrderForm({
       if (!draft.job_number.trim()) { setError('Enter the job number before completing the ticket.'); return; }
       if (!draft.start_at || !draft.stop_at) { setError('Enter the start and stop times before completing the ticket.'); return; }
       if (!ticketPhoto) { setError('Attach a photo of the paper ticket before completing it.'); return; }
+      if (!foremanSignature) { setError('The job foreman needs to sign the ticket before it goes in.'); return; }
     }
     setBusy(submit ? 'submit' : 'save'); setError(''); setMsg('');
     try {
@@ -500,7 +503,21 @@ export default function WorkOrderForm({
         />
       </div>
 
-      <TicketSignature path={signature} onChange={setSignature} readOnly={locked} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <TicketSignature
+          path={signature}
+          onChange={setSignature}
+          readOnly={locked}
+          label="Driver's signature"
+        />
+        <TicketSignature
+          path={foremanSignature}
+          onChange={setForemanSignature}
+          readOnly={locked}
+          label="Foreman's signature"
+          hint="Signed off on site at the end of the day."
+        />
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <label><span className={label}>Notes</span>

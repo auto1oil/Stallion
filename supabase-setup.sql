@@ -122,6 +122,22 @@ alter table public.profiles add constraint profiles_role_check
                   'customer', 'office', 'mechanic', 'labor', 'hauler'));
 alter table public.profiles alter column role set default 'customer';
 
+-- A login attached to a hauling company. Declared here rather than with the
+-- haulers table further down because section 10's read policy depends on it,
+-- and a policy resolves its function references the moment it is created. The
+-- foreign key is added alongside the haulers table itself.
+alter table public.profiles add column if not exists hauler_id uuid;
+create index if not exists profiles_hauler_idx on public.profiles (hauler_id);
+
+-- The hauling company of the signed-in user, or null for Stallion's own staff.
+-- Security definer so reading it doesn't recurse into the profiles policy that
+-- calls it.
+create or replace function public.my_hauler_id()
+returns uuid language sql stable security definer set search_path = public as $$
+  select hauler_id from public.profiles where id = auth.uid();
+$$;
+grant execute on function public.my_hauler_id() to authenticated;
+
 -- Auto-create a profile row whenever someone signs up via Supabase Auth.
 create or replace function public.handle_new_user()
 returns trigger
@@ -406,12 +422,59 @@ drop policy if exists "auth_users_read_profiles"    on public.profiles;
 drop policy if exists "users_update_own_profile"    on public.profiles;
 drop policy if exists "admins_update_any_profile"   on public.profiles;
 
+-- Staff read the directory as before. Anyone attached to a hauling company
+-- reads only themselves and their own company: my_hauler_id() is null for
+-- staff, which is what keeps the first branch open for them.
+--
+-- The function is defined further down the file, so this policy is created
+-- with the check disabled (see check_function_bodies at the top) and only
+-- resolved when it actually runs.
 create policy "auth_users_read_profiles"  on public.profiles
-  for select to authenticated using (true);
+  for select to authenticated using (
+    id = auth.uid()
+    or public.my_hauler_id() is null
+    or hauler_id = public.my_hauler_id()
+  );
 create policy "users_update_own_profile"  on public.profiles
   for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 create policy "admins_update_any_profile" on public.profiles
   for update to authenticated using (public.is_admin());
+
+-- users_update_own_profile lets someone edit their own row, and RLS gates
+-- rows, not columns — so without this, any signed-in user could set their own
+-- role to master_admin, or attach themselves to a hauling company and read its
+-- work. The privileged columns are guarded by a trigger instead.
+--
+-- The service role is let through because that is how the app's own admin
+-- routes legitimately set a role: they run server-side with the service key,
+-- after doing their own permission check.
+create or replace function public.guard_profile_privileges()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- No signed-in user means this is not someone editing their own profile in
+  -- the app: it is the service role behind an admin route, a migration, or a
+  -- cron job. Those have already done their own checking, or are the operator.
+  if auth.uid() is null or current_user = 'service_role' then
+    return new;
+  end if;
+  if new.role is distinct from old.role then
+    if not public.is_admin() then
+      raise exception 'only an admin can change a role';
+    end if;
+  end if;
+  if new.hauler_id is distinct from old.hauler_id then
+    if not public.is_admin() then
+      raise exception 'only an admin can change which company a login belongs to';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_profile_privileges on public.profiles;
+create trigger trg_guard_profile_privileges
+  before update on public.profiles
+  for each row execute function public.guard_profile_privileges();
 
 -- ---- orders ----
 drop policy if exists "auth_users_view_orders"        on public.orders;
@@ -2098,10 +2161,14 @@ create table if not exists public.haulers (
 create unique index if not exists haulers_name_key on public.haulers (lower(name));
 create index if not exists haulers_active_idx on public.haulers (active, name);
 
--- A hauler login belongs to one company. Null for everyone else.
-alter table public.profiles
-  add column if not exists hauler_id uuid references public.haulers(id) on delete set null;
-create index if not exists profiles_hauler_idx on public.profiles (hauler_id);
+-- profiles.hauler_id is declared up in section 1 (section 10's read policy
+-- needs it). Now that haulers exists, it gets its foreign key.
+do $$ begin
+  alter table public.profiles
+    add constraint profiles_hauler_id_fkey foreign key (hauler_id)
+    references public.haulers(id) on delete set null;
+exception when duplicate_object then null;
+end $$;
 
 -- 'hauler' is in the role CHECK up in section 1, which is the only place the
 -- role list is defined — see the note there.
@@ -2188,13 +2255,8 @@ create trigger trg_hauler_loads_touch before update on public.hauler_loads
   for each row execute function public.touch_updated_at();
 
 -- ---- Who am I? ----------------------------------------------------------
--- The hauler company of the signed-in user. Used by every hauler policy
--- below; security definer so reading it doesn't recurse into profiles' RLS.
-create or replace function public.my_hauler_id()
-returns uuid language sql stable security definer set search_path = public as $$
-  select hauler_id from public.profiles where id = auth.uid();
-$$;
-grant execute on function public.my_hauler_id() to authenticated;
+-- my_hauler_id() is defined up in section 1, where section 10's profiles
+-- policy can reach it. Every hauler policy below uses it.
 
 -- ---- RLS ----------------------------------------------------------------
 grant select, insert, update, delete on public.haulers            to authenticated;
@@ -2619,6 +2681,82 @@ on conflict (key) do nothing;
 -- "who let this through" always has an answer.
 alter table public.work_orders add column if not exists audited_by uuid references public.profiles(id) on delete set null;
 alter table public.work_orders add column if not exists audited_at timestamptz;
+
+
+-- ==========================================================================
+-- 44. A hauler's own drivers
+-- ==========================================================================
+-- A hauling company runs its own drivers, and it is the company — not
+-- Stallion's office — that knows who is driving today. So a hauler creates its
+-- own driver logins, and those drivers get the ticket screens and nothing
+-- else.
+--
+-- A driver of a hauler is role 'driver' with profiles.hauler_id set, which is
+-- the same scoping the hauler role already uses. Every policy written against
+-- my_hauler_id() therefore covers them without being restated — including the
+-- work_orders ones, which is exactly what's wanted: a company's drivers work
+-- that company's tickets.
+--
+-- What is NOT wanted is a driver editing the fleet or the availability
+-- calendar, so those two are narrowed to the hauler role below.
+-- ==========================================================================
+
+-- Who is expected to run this. Set by the hauler when they hand a load to one
+-- of their drivers; the driver's ticket list is filtered by it.
+alter table public.work_orders  add column if not exists assigned_to uuid references public.profiles(id) on delete set null;
+alter table public.hauler_loads add column if not exists driver_id   uuid references public.profiles(id) on delete set null;
+create index if not exists work_orders_assigned_idx on public.work_orders (assigned_to, status);
+
+-- ---- Fleet and availability are the company's, not a driver's ------------
+drop policy if exists "hauler equip own manage" on public.hauler_equipment;
+create policy "hauler equip own manage" on public.hauler_equipment
+  for all to authenticated
+  using (hauler_id = public.my_hauler_id() and public.has_role(array['hauler']))
+  with check (hauler_id = public.my_hauler_id() and public.has_role(array['hauler']));
+
+-- Drivers still READ the fleet — they name the unit they took a load on.
+drop policy if exists "hauler equip own read" on public.hauler_equipment;
+create policy "hauler equip own read" on public.hauler_equipment
+  for select to authenticated
+  using (hauler_id = public.my_hauler_id());
+
+drop policy if exists "hauler avail own manage" on public.hauler_availability;
+create policy "hauler avail own manage" on public.hauler_availability
+  for all to authenticated
+  using (hauler_id = public.my_hauler_id() and public.has_role(array['hauler']))
+  with check (hauler_id = public.my_hauler_id() and public.has_role(array['hauler']));
+
+drop policy if exists "hauler avail own read" on public.hauler_availability;
+create policy "hauler avail own read" on public.hauler_availability
+  for select to authenticated
+  using (hauler_id = public.my_hauler_id());
+
+-- ---- A hauler reads its own people ---------------------------------------
+-- Handled by auth_users_read_profiles up in section 10, which scopes anyone
+-- with a hauler_id to their own company. Stated in one place so the two
+-- cannot drift apart.
+drop policy if exists "profiles hauler reads own crew" on public.profiles;
+
+-- A hauler may deactivate its own driver, and nothing else about them. Role
+-- and hauler_id are not in reach here: the API route owns those, the same way
+-- ticket approvals do.
+drop policy if exists "profiles hauler updates own crew" on public.profiles;
+create policy "profiles hauler updates own crew" on public.profiles
+  for update to authenticated
+  using (
+    hauler_id is not null
+    and hauler_id = public.my_hauler_id()
+    and public.has_role(array['hauler'])
+    and id <> auth.uid()
+  )
+  with check (
+    hauler_id is not null
+    and hauler_id = public.my_hauler_id()
+    and public.has_role(array['hauler'])
+  );
+
+-- A deactivated driver keeps their history but can't be handed new work.
+alter table public.profiles add column if not exists active boolean not null default true;
 
 
 -- ==========================================================================

@@ -3,10 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import SignatureCanvas from 'react-signature-canvas';
 import { createClient } from '@/lib/supabase-browser';
 
-// On-screen signature for a field ticket — the FSR or customer rep signs the
-// phone the same way a customer signs for a delivery in DeliveryDetail. The
-// drawn signature is saved as a PNG in the work-tickets bucket and the ticket
-// keeps its path.
+// On-screen signature for a haul ticket. Used twice: the driver signs their
+// own ticket, and the job foreman signs it off at the end of the day — the two
+// signatures at the foot of the paper ticket.
+//
+// The drawn signature is saved as a PNG in the work-tickets bucket and the
+// ticket keeps its path.
 
 const BUCKET = 'work-tickets';
 
@@ -14,10 +16,14 @@ export default function TicketSignature({
   path,
   onChange,
   readOnly = false,
+  label = 'Signature',
+  hint,
 }: {
   path: string | null;
   onChange?: (path: string | null) => void;
   readOnly?: boolean;
+  label?: string;
+  hint?: string;
 }) {
   const supabase = createClient();
   const sigRef = useRef<SignatureCanvas>(null);
@@ -59,7 +65,7 @@ export default function TicketSignature({
   return (
     <div className="border border-gray-200 rounded-lg p-3 bg-white">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium">Signature</span>
+        <span className="text-sm font-medium">{label}</span>
         {path && !readOnly && (
           <button
             type="button"
@@ -70,6 +76,7 @@ export default function TicketSignature({
           </button>
         )}
       </div>
+      {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
 
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element

@@ -43,7 +43,9 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 - **Suggested rate** — the agreed rate for that job/phase is one tap away
 - **Photo of the paper ticket** straight from the phone's camera, plus the
   short ticket, both compressed before upload
-- **On-screen signature** for the FSR
+- **Two on-screen signatures** — the driver's, and the **job foreman's** at
+  the end of the day. A ticket can't be completed without the foreman's:
+  it's what says someone on the customer's side agreed to these hours
 - **Save as a draft** on the job, **complete** it when the photo's on it
 - **My tickets** — everything you've filed, filtered by stage, showing what the
   office did with it and the reason if anything came back
@@ -82,6 +84,10 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 - **Rates** — the agreed rate per job and phase, read-only
 
 ## 🚛 For haulers (`/hauler`) and the office (`/haulers`)
+- **Haulers run their own drivers** — the company adds driver logins itself,
+  since it's the company that knows who's driving today, not Stallion's office
+- A hauler's driver sees **haul tickets and nothing else**: not the rates, not
+  the fleet settings, not the order book, not another company's work
 - **Hauler directory** — every company set up to haul for Stallion, with the
   contact, MC/DOT numbers, insurance expiry (flagged red once it's past), and
   the count of trucks each one has on file

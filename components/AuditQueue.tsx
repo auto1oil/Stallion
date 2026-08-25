@@ -47,6 +47,7 @@ const COLUMNS: Column[] = [
   { key: 'bills', label: 'Bills', get: (w) => `${billableQuantity(w).toFixed(2)} ${billableUnit(w)}` },
   { key: 'amount', label: 'Amount', get: (w) => `$${ticketAmount(w).toFixed(2)}` },
   { key: 'photo', label: 'Photo', get: (w) => (w.ticket_photo_path ? 'yes' : 'MISSING') },
+  { key: 'foreman', label: 'Foreman', get: (w) => (w.foreman_signature_path ? 'signed' : 'MISSING') },
 ];
 
 const DEFAULT_KEYS = ['job_date', 'driver_name', 'trucking_company', 'unit_number',
@@ -57,6 +58,9 @@ function needsEyes(w: WorkOrder): string | null {
   if (w.order_mismatch && !w.mismatch_cleared_at) return w.order_mismatch;
   if (!w.order_id) return 'no order — nothing to check it against';
   if (!w.ticket_photo_path) return 'no photo of the paper ticket';
+  // The foreman signing is what closes the day on site. Without it there is
+  // nobody on the customer's side who agreed to these hours.
+  if (!w.foreman_signature_path) return 'the job foreman never signed it';
   if (ticketAmount(w) <= 0) return 'nothing to bill — no hours, no tonnage, or no rate';
   return null;
 }

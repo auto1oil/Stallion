@@ -14,6 +14,9 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   const pathname = usePathname();
   const [userId, setUserId] = useState<string | null>(null);
   const [firstName, setFirstName] = useState('');
+  // A driver who belongs to a hauling company gets a much shorter nav than
+  // one of Stallion's own crew — they are here for haul tickets only.
+  const [haulerId, setHaulerId] = useState<string | null>(null);
   const [approvals, setApprovals] = useState(0);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
@@ -28,7 +31,8 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       setUserId(user?.id || null);
       if (!user) return;
-      const { data } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
+      const { data } = await supabase.from('profiles').select('full_name, hauler_id').eq('id', user.id).single();
+      setHaulerId(data?.hauler_id ?? null);
       const fn = (data?.full_name || '').trim().split(/\s+/)[0];
       setFirstName(fn || (email ? email.split('@')[0] : ''));
     });
@@ -100,9 +104,15 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/messages',             label: 'Messages' },
   ];
   // Haulers see only their own company's side of the app.
+  // A hauling company's driver: haul tickets, nothing else.
+  const haulerDriverLinks = [
+    { href: '/tickets',     label: 'My Tickets' },
+    { href: '/tickets/new', label: 'New Ticket' },
+  ];
   const haulerLinks = [
     { href: '/hauler',              label: 'Loads' },
     { href: '/tickets',             label: 'Haul Tickets' },
+    { href: '/hauler/drivers',      label: 'Drivers' },
     { href: '/hauler/equipment',    label: 'Trucks & Equipment' },
     { href: '/hauler/availability', label: 'Availability' },
     { href: '/messages',            label: 'Messages' },
@@ -128,6 +138,8 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
       ? funderLinks
       : role === 'hauler'
       ? haulerLinks
+      : role === 'driver' && haulerId
+      ? haulerDriverLinks
       : role === 'driver' || role === 'mechanic'
       ? driverLinks
       : hourlyLinks;

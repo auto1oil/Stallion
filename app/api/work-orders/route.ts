@@ -69,10 +69,11 @@ export async function POST(req: Request) {
   const row = pickEditable(body);
   const submit = body.submit === true;
 
-  // A hauler's ticket always belongs to their own company, whatever the
-  // client posted — it's what scopes the row to them, and RLS refuses the
-  // insert outright if it's missing or someone else's.
-  if (actor.role === 'hauler') row.hauler_id = actor.hauler_id;
+  // A ticket filed by anyone at a hauling company — the dispatcher or one of
+  // their drivers — belongs to that company, whatever the client posted. It's
+  // what scopes the row, and RLS refuses the insert outright if it's missing
+  // or someone else's.
+  if (actor.hauler_id) row.hauler_id = actor.hauler_id;
 
   const finalRow = await withOrderMismatch(supabase, row, null);
 
