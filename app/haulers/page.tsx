@@ -3,11 +3,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import type { Hauler } from '@/lib/haulers';
+import { docWarning, type HaulerDocument } from '@/lib/hauler-docs';
 
 // The hauler directory: every company set up to haul for Stallion, with the
 // count of trucks on file and whatever is still waiting on each of them.
 
-type Row = Hauler & { units: number; open: number };
+type Row = Hauler & { units: number; open: number; docWarning: string | null };
 
 export default function HaulersPage() {
   const supabase = createClient();
@@ -23,10 +24,11 @@ export default function HaulersPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: haulers }, { data: equip }, { data: loads }] = await Promise.all([
+    const [{ data: haulers }, { data: equip }, { data: loads }, { data: papers }] = await Promise.all([
       supabase.from('haulers').select('*').order('name'),
       supabase.from('hauler_equipment').select('hauler_id').eq('active', true),
       supabase.from('hauler_loads').select('hauler_id, status').in('status', ['offered', 'accepted', 'assigned']),
+      supabase.from('hauler_documents').select('*'),
     ]);
 
     const units = new Map<string, number>();
@@ -38,10 +40,18 @@ export default function HaulersPage() {
       open.set(l.hauler_id, (open.get(l.hauler_id) || 0) + 1);
     }
 
+    // Paperwork is grouped per company so a lapse shows on the row, before
+    // anyone picks that company to send a load to.
+    const byHauler = new Map<string, HaulerDocument[]>();
+    for (const d of ((papers as HaulerDocument[]) || [])) {
+      byHauler.set(d.hauler_id, [...(byHauler.get(d.hauler_id) || []), d]);
+    }
+
     setRows(((haulers as Hauler[]) || []).map((h) => ({
       ...h,
       units: units.get(h.id) || 0,
       open: open.get(h.id) || 0,
+      docWarning: docWarning(byHauler.get(h.id) || []),
     })));
     setLoading(false);
   }
@@ -141,6 +151,11 @@ export default function HaulersPage() {
                   <div className="text-xs text-gray-500 mt-0.5">
                     {[h.contact_name, h.phone, h.email].filter(Boolean).join(' · ') || 'No contact on file'}
                   </div>
+                  {h.docWarning && (
+                    <div className="text-xs text-red-600 font-medium mt-0.5">
+                      Paperwork: {h.docWarning}
+                    </div>
+                  )}
                 </div>
                 <div className="text-xs text-gray-600 text-right shrink-0">
                   <div>{h.units} {h.units === 1 ? 'unit' : 'units'}</div>

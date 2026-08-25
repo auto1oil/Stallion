@@ -84,6 +84,15 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 - **Rates** — the agreed rate per job and phase, read-only
 
 ## 🚛 For haulers (`/hauler`) and the office (`/haulers`)
+- **Company details** — the hauler keeps their own business name, contact,
+  address, MC/DOT and insurance expiry current. The name is the Trucking
+  Company on every haul ticket their drivers file
+- **Documents** — insurance, authority, W-9 and anything else, uploaded by
+  the company into a private store and read by Stallion's office from the
+  same list. No more "did you send it"
+- **Paperwork expires, and the app says so before you dispatch** — a missing
+  or expired Certificate of Insurance or W-9 shows in red on the hauler list,
+  and anything within 30 days of expiry shows amber
 - **Haulers run their own drivers** — the company adds driver logins itself,
   since it's the company that knows who's driving today, not Stallion's office
 - A hauler's driver sees **haul tickets and nothing else**: not the rates, not

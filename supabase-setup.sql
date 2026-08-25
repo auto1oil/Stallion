@@ -2819,5 +2819,102 @@ create trigger trg_guard_hauler_active
 
 
 -- ==========================================================================
+-- 47. Hauler documents — insurance, authority, W-9
+-- ==========================================================================
+-- A hauling company cannot run loads for Stallion without current paperwork,
+-- and the paperwork expires. So documents carry an expiry date and the office
+-- can see at a glance who has lapsed, rather than finding out after a truck is
+-- already on a job.
+--
+-- The company uploads its own; Stallion's office reads every company's. Files
+-- go in a private bucket keyed by hauler, so the storage policy can scope
+-- reads the same way the table does.
+-- ==========================================================================
+
+create table if not exists public.hauler_documents (
+  id          uuid primary key default gen_random_uuid(),
+  hauler_id   uuid not null references public.haulers(id) on delete cascade,
+  kind        text not null default 'Other',
+  file_name   text,
+  file_path   text not null,
+  expires_on  date,
+  notes       text,
+  uploaded_by uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists hauler_documents_hauler_idx
+  on public.hauler_documents (hauler_id, kind);
+create index if not exists hauler_documents_expiry_idx
+  on public.hauler_documents (expires_on) where expires_on is not null;
+
+grant select, insert, update, delete on public.hauler_documents to authenticated;
+alter table public.hauler_documents enable row level security;
+
+-- Stallion's office holds the file on every company it hauls with.
+drop policy if exists "hauler docs staff" on public.hauler_documents;
+create policy "hauler docs staff" on public.hauler_documents
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+-- A company manages its own. Its drivers read them but do not upload:
+-- paperwork is the company's responsibility, not the driver's.
+drop policy if exists "hauler docs own manage" on public.hauler_documents;
+create policy "hauler docs own manage" on public.hauler_documents
+  for all to authenticated
+  using (hauler_id = public.my_hauler_id() and public.has_role(array['hauler']))
+  with check (hauler_id = public.my_hauler_id() and public.has_role(array['hauler']));
+
+drop policy if exists "hauler docs own read" on public.hauler_documents;
+create policy "hauler docs own read" on public.hauler_documents
+  for select to authenticated
+  using (hauler_id = public.my_hauler_id());
+
+-- ---- Storage --------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+  values ('hauler-docs', 'hauler-docs', false)
+  on conflict (id) do nothing;
+
+-- Files are stored under "<hauler_id>/…", so the first path segment is what
+-- scopes a read. A hauler gets their own folder; staff get all of them.
+drop policy if exists "hauler docs upload" on storage.objects;
+create policy "hauler docs upload" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'hauler-docs'
+    and (
+      public.is_admin()
+      or public.has_role(array['office'])
+      or (storage.foldername(name))[1] = public.my_hauler_id()::text
+    )
+  );
+
+drop policy if exists "hauler docs read" on storage.objects;
+create policy "hauler docs read" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'hauler-docs'
+    and (
+      public.is_admin()
+      or public.has_role(array['office'])
+      or (storage.foldername(name))[1] = public.my_hauler_id()::text
+    )
+  );
+
+drop policy if exists "hauler docs delete" on storage.objects;
+create policy "hauler docs delete" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'hauler-docs'
+    and (
+      public.is_admin()
+      or public.has_role(array['office'])
+      or (storage.foldername(name))[1] = public.my_hauler_id()::text
+    )
+  );
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

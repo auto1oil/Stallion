@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { orderLabel, type JobOrder } from '@/lib/job-orders';
+import HaulerDocuments from '@/components/HaulerDocuments';
 import {
   LOAD_STATUS_LABEL, LOAD_STATUS_TONE, isFreeOn, unitCanPull,
   type Hauler, type HaulerEquipment, type HaulerAvailability,
@@ -226,6 +227,10 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
           </dl>
         )}
       </div>
+
+      {/* The office reads the same list the company uploads to, so there is
+          never a question of whether paperwork was sent. */}
+      <HaulerDocuments haulerId={params.id} canUpload={false} />
 
       {/* ---- Fleet ---- */}
       <div className={card}>

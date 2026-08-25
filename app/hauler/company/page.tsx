@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import type { Hauler } from '@/lib/haulers';
+import HaulerDocuments from '@/components/HaulerDocuments';
 
 // The hauling company's own details. These are what land on every haul ticket
 // their drivers file, so the company keeps them right rather than asking the
@@ -130,6 +131,8 @@ export default function HaulerCompanyPage() {
           {busy ? 'Saving…' : 'Save details'}
         </button>
       </div>
+
+      <HaulerDocuments haulerId={company.id} canUpload />
     </div>
   );
 }
