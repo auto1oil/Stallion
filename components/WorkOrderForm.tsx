@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
@@ -310,23 +311,48 @@ export default function WorkOrderForm({
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Job</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <label className="col-span-2 sm:col-span-3">
-            <span className={label}>Order</span>
-            <select value={draft.order_id} onChange={(e) => applyOrder(e.target.value)} disabled={locked} className={input}>
-              <option value="">— No order —</option>
-              {orders.map((o) => <option key={o.id} value={o.id}>{orderLabel(o)}</option>)}
-            </select>
-            <span className="block mt-1 text-[11px] text-gray-500">
-              {draft.order_id
-                ? 'This ticket is billed against that order. Anything that disagrees with it gets flagged for the office.'
-                : orders.length === 0
-                  ? 'No open orders yet.'
-                  : 'Pick the job this ticket is for and the rest fills in.'}
-            </span>
-          </label>
-          <div className="col-span-2 sm:col-span-3">
-            <CustomerPicker value={draft.customer_id} onChange={(id) => set('customer_id', id)} disabled={locked} />
-          </div>
+          {/* The order book and the customer directory are Stallion's — a
+              hauling company cannot read either, by design, because the order
+              carries the customer rate. So rather than show them two pickers
+              that can never fill, their ticket says where its job comes from. */}
+          {isHauler ? (
+            <div className="col-span-2 sm:col-span-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+              {draft.order_id ? (
+                <span className="text-gray-700">
+                  This ticket is against the job Stallion sent you. The details below came
+                  with it — correct anything that ran differently on the day.
+                </span>
+              ) : (
+                <span className="text-gray-700">
+                  Start a ticket from the load Stallion sent you and the job fills itself in.
+                  Open{' '}
+                  <Link href="/hauler" className="text-brand-700 font-medium hover:underline">Loads</Link>
+                  {' '}and use the ticket on the one you accepted. Filling this in by hand works
+                  too — the office will just have to check it against the job themselves.
+                </span>
+              )}
+            </div>
+          ) : (
+            <>
+              <label className="col-span-2 sm:col-span-3">
+                <span className={label}>Order</span>
+                <select value={draft.order_id} onChange={(e) => applyOrder(e.target.value)} disabled={locked} className={input}>
+                  <option value="">— No order —</option>
+                  {orders.map((o) => <option key={o.id} value={o.id}>{orderLabel(o)}</option>)}
+                </select>
+                <span className="block mt-1 text-[11px] text-gray-500">
+                  {draft.order_id
+                    ? 'This ticket is billed against that order. Anything that disagrees with it gets flagged for the office.'
+                    : orders.length === 0
+                      ? 'No open orders yet — create one under Orders first.'
+                      : 'Pick the job this ticket is for and the rest fills in.'}
+                </span>
+              </label>
+              <div className="col-span-2 sm:col-span-3">
+                <CustomerPicker value={draft.customer_id} onChange={(id) => set('customer_id', id)} disabled={locked} />
+              </div>
+            </>
+          )}
           <label><span className={label}>Driver name</span>
             <input value={draft.driver_name} onChange={(e) => set('driver_name', e.target.value)} disabled={locked} className={input} />
           </label>
