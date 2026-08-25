@@ -2782,5 +2782,42 @@ create index if not exists hauler_equipment_trailers_idx
 
 
 -- ==========================================================================
+-- 46. A hauler keeps its own company details up to date
+-- ==========================================================================
+-- The company name, contact and address end up on the haul ticket, so they
+-- have to be right — and the company is who knows when they change. They edit
+-- their own row; nobody else's, and not the active flag, which is Stallion's
+-- call about whether they are still hauling.
+-- ==========================================================================
+
+drop policy if exists "haulers edit own" on public.haulers;
+create policy "haulers edit own" on public.haulers
+  for update to authenticated
+  using (id = public.my_hauler_id() and public.has_role(array['hauler']))
+  with check (id = public.my_hauler_id() and public.has_role(array['hauler']));
+
+-- Whether a company is still hauling for Stallion is Stallion's decision, and
+-- RLS gates rows rather than columns, so a trigger holds that one column.
+create or replace function public.guard_hauler_active()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or current_user = 'service_role' then
+    return new;
+  end if;
+  if new.active is distinct from old.active
+     and not (public.is_admin() or public.has_role(array['office'])) then
+    raise exception 'only Stallion can deactivate a hauling company';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_guard_hauler_active on public.haulers;
+create trigger trg_guard_hauler_active
+  before update on public.haulers
+  for each row execute function public.guard_hauler_active();
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

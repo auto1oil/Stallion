@@ -72,6 +72,23 @@ export default function HaulerLoadsPage() {
     }
   }
 
+  // Accepting starts the ticket automatically, but that step is best-effort —
+  // this is the way to get one for a load where it didn't land, or that was
+  // accepted before the automatic step existed.
+  async function startTicket(id: string) {
+    setBusy(id); setError('');
+    try {
+      const res = await fetch(`/api/haulers/loads/${id}/ticket`, { method: 'POST' });
+      const json = await res.json();
+      if (!json.ok) { setError(json.error || 'Could not start the ticket.'); return; }
+      router.push(`/tickets/${json.work_order_id}`);
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy('');
+    }
+  }
+
   const input = 'w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm';
   const offered = loads.filter((l) => l.status === 'offered');
   const working = loads.filter((l) => ['accepted', 'assigned'].includes(l.status));
@@ -192,11 +209,19 @@ export default function HaulerLoadsPage() {
                           {l.decline_reason && (
                             <div className="text-xs text-gray-500 mt-0.5">You declined: {l.decline_reason}</div>
                           )}
-                          {l.work_order_id && (
+                          {l.work_order_id ? (
                             <Link href={`/tickets/${l.work_order_id}`} className="inline-block text-xs text-brand-700 hover:underline mt-1">
                               Open the haul ticket →
                             </Link>
-                          )}
+                          ) : ['accepted', 'assigned'].includes(l.status) ? (
+                            <button
+                              onClick={() => startTicket(l.id)}
+                              disabled={busy === l.id}
+                              className="mt-1.5 px-2.5 py-1 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+                            >
+                              {busy === l.id ? 'Starting…' : 'Start the haul ticket'}
+                            </button>
+                          ) : null}
                         </div>
                         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${LOAD_STATUS_TONE[l.status as LoadStatus]}`}>
                           {LOAD_STATUS_LABEL[l.status as LoadStatus]}

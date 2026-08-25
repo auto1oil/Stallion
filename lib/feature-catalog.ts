@@ -85,5 +85,6 @@ export const FEATURES: Feature[] = [
   { group: 'hauler', key: 'hauler:/hauler/drivers', label: 'Drivers' },
   { group: 'hauler', key: 'hauler:/hauler/equipment', label: 'Trucks & Equipment' },
   { group: 'hauler', key: 'hauler:/hauler/availability', label: 'Availability' },
+  { group: 'hauler', key: 'hauler:/hauler/company', label: 'Company' },
   { group: 'hauler', key: 'hauler:/messages', label: 'Messages' },
 ];

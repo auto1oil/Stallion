@@ -6,6 +6,7 @@ import TicketAttachment from '@/components/TicketAttachment';
 import TicketSignature from '@/components/TicketSignature';
 import LoadLines from '@/components/LoadLines';
 import CustomerPicker from '@/components/CustomerPicker';
+import HaulerOnTicket from '@/components/HaulerOnTicket';
 import { orderLabel, ticketDefaultsFrom, type JobOrder } from '@/lib/job-orders';
 import {
   onSiteHours, totalHours, ticketAmount, billableUnit,
@@ -304,6 +305,8 @@ export default function WorkOrderForm({
 
   return (
     <div className="space-y-4">
+      {workOrder?.hauler_id && <HaulerOnTicket haulerId={workOrder.hauler_id} />}
+
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Job</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

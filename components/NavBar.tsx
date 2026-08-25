@@ -115,6 +115,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/hauler/drivers',      label: 'Drivers' },
     { href: '/hauler/equipment',    label: 'Trucks & Equipment' },
     { href: '/hauler/availability', label: 'Availability' },
+    { href: '/hauler/company',      label: 'Company' },
     { href: '/messages',            label: 'Messages' },
   ];
   const funderLinks = [
