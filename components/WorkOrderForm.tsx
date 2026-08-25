@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
 import TicketSignature from '@/components/TicketSignature';
 import LoadLines from '@/components/LoadLines';
+import { orderLabel, ticketDefaultsFrom, type JobOrder } from '@/lib/job-orders';
 import {
   onSiteHours, totalHours, ticketAmount, billableUnit,
   type WorkOrder,
@@ -42,6 +43,7 @@ const EQUIPMENT_TYPES = [
 function toDraft(wo: Partial<WorkOrder> | null): Draft {
   const v = (x: unknown) => (x === null || x === undefined ? '' : String(x));
   return {
+    order_id: v(wo?.order_id),
     customer_id: v(wo?.customer_id),
     customer_number: v(wo?.customer_number),
     job_number: v(wo?.job_number),
@@ -109,6 +111,7 @@ export default function WorkOrderForm({
   const [signature, setSignature] = useState<string | null>(workOrder?.signature_path ?? null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [rates, setRates] = useState<Rate[]>([]);
+  const [orders, setOrders] = useState<JobOrder[]>([]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -127,15 +130,36 @@ export default function WorkOrderForm({
 
   const set = (k: string, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
+  // Picking an order pulls its agreed terms onto the ticket. Only blank
+  // fields are filled — a crew that already typed a rate keeps it, and the
+  // difference is what gets flagged for the office rather than overwritten.
+  function applyOrder(orderId: string) {
+    const picked = orders.find((o) => o.id === orderId);
+    if (!picked) { set('order_id', orderId); return; }
+    const defaults = ticketDefaultsFrom(picked);
+    setDraft((d) => {
+      const next = { ...d, order_id: orderId };
+      for (const [k, val] of Object.entries(defaults)) {
+        if (!next[k]) next[k] = val;
+      }
+      return next;
+    });
+  }
+
   useEffect(() => {
     (async () => {
-      const [{ data: bizRows }, { data: rateRows }] = await Promise.all([
+      const [{ data: bizRows }, { data: rateRows }, { data: orderRows }] = await Promise.all([
         supabase.from('businesses').select('id, name').order('name'),
         supabase.from('job_rates').select('job_number, phase_code, rate, rate_unit, description').eq('active', true),
+        // Finished and cancelled orders aren't offered — a ticket filed
+        // against one is almost always the wrong order picked in a hurry.
+        supabase.from('job_orders').select('*').in('status', ['open', 'active'])
+          .order('order_number', { ascending: false }),
       ]);
       setCustomers(((bizRows as { id: string; name: string }[]) || [])
         .map((b) => ({ id: b.id, name: b.name, business_id: b.id, profile_id: null })));
       setRates((rateRows as Rate[]) || []);
+      setOrders((orderRows as JobOrder[]) || []);
     })();
   }, [supabase]);
 
@@ -168,6 +192,7 @@ export default function WorkOrderForm({
 
   function body(): Record<string, unknown> {
     return {
+      order_id: draft.order_id || null,
       business_id: draft.customer_id || null,
       customer_number: draft.customer_number.trim() || null,
       job_number: draft.job_number.trim() || null,
@@ -270,6 +295,20 @@ export default function WorkOrderForm({
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Job</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <label className="col-span-2 sm:col-span-3">
+            <span className={label}>Order</span>
+            <select value={draft.order_id} onChange={(e) => applyOrder(e.target.value)} disabled={locked} className={input}>
+              <option value="">— No order —</option>
+              {orders.map((o) => <option key={o.id} value={o.id}>{orderLabel(o)}</option>)}
+            </select>
+            <span className="block mt-1 text-[11px] text-gray-500">
+              {draft.order_id
+                ? 'This ticket is billed against that order. Anything that disagrees with it gets flagged for the office.'
+                : orders.length === 0
+                  ? 'No open orders yet.'
+                  : 'Pick the job this ticket is for and the rest fills in.'}
+            </span>
+          </label>
           <label className="col-span-2 sm:col-span-3">
             <span className={label}>Customer</span>
             <select value={draft.customer_id} onChange={(e) => set('customer_id', e.target.value)} disabled={locked} className={input}>

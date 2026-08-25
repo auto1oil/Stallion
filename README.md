@@ -23,6 +23,10 @@ crew fills ticket  →  office audits + approves  →  funder approves funds
                               /contractor
 ```
 
+Every ticket is filed against an **order** — a specific job, running a day or
+three months, carrying the terms it was agreed on. Anything a ticket disagrees
+with is flagged for the office rather than billed quietly.
+
 A ticket moves `draft → submitted → office_approved → funds_approved →
 invoiced` (or `rejected`, which sends it back to the crew with a reason).
 Hours and dollars are always recomputed from the row — start/stop plus travel
@@ -139,7 +143,9 @@ project it is a no-op.
 | Path | What's in it |
 | --- | --- |
 | `app/tickets` | The crew's screens |
-| `app/work-orders` | The office's queue, ticket review, setup |
+| `app/work-orders` | The office's queue, ticket review, orders, setup |
+| `lib/job-orders.ts` | Orders: the agreed terms, and what a ticket disagrees on |
+| `lib/order-match.ts` | Server-side reconciliation of a ticket against its order |
 | `app/contractor` | Contractor work orders, approvals, rates |
 | `app/funder` | Funder orders + approve funds |
 | `app/haulers` | The office's hauler directory, fleets, and dispatch |

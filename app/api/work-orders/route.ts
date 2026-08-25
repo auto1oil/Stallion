@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { pickEditable } from '@/lib/work-orders';
+import { withOrderMismatch } from '@/lib/order-match';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,10 +74,12 @@ export async function POST(req: Request) {
   // insert outright if it's missing or someone else's.
   if (actor.role === 'hauler') row.hauler_id = actor.hauler_id;
 
+  const finalRow = await withOrderMismatch(supabase, row, null);
+
   const { data, error } = await supabase
     .from('work_orders')
     .insert({
-      ...row,
+      ...finalRow,
       submitted_by: user.id,
       status: submit ? 'submitted' : 'draft',
       submitted_at: submit ? new Date().toISOString() : null,

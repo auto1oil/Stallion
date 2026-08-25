@@ -44,7 +44,7 @@ export const FEATURES: Feature[] = [
   // Admin
   { group: 'admin', key: 'admin:/work-orders', label: 'Work Orders' },
   { group: 'admin', key: 'admin:/work-orders/approve', label: 'Approve' },
-  { group: 'admin', key: 'admin:/admin', label: 'Orders' },
+  { group: 'admin', key: 'admin:/admin', label: 'Tickets' },
   { group: 'admin', key: 'admin:/admin/delivery-log', label: 'Delivery Log' },
   { group: 'admin', key: 'admin:/haulers', label: 'Haulers' },
   { group: 'admin', key: 'admin:/admin/customers', label: 'Customers' },
@@ -65,7 +65,7 @@ export const FEATURES: Feature[] = [
   // Driver / crew
   { group: 'driver', key: 'driver:/tickets', label: 'My Tickets' },
   { group: 'driver', key: 'driver:/tickets/new', label: 'New Ticket' },
-  { group: 'driver', key: 'driver:/driver', label: 'Orders' },
+  { group: 'driver', key: 'driver:/driver', label: 'Tickets' },
   { group: 'driver', key: 'driver:/driver/delivery-log', label: 'Delivery Log' },
   { group: 'driver', key: 'driver:/driver/customers', label: 'Customers' },
   { group: 'driver', key: 'driver:/driver/hours', label: 'Hours' },

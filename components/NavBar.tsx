@@ -64,7 +64,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/work-orders',           label: 'Work Orders' },
     { href: '/work-orders/approve',   label: 'Approve' },
     { href: '/haulers',               label: 'Haulers' },
-    { href: '/admin',                 label: 'Orders' },
+    { href: '/admin',                 label: 'Tickets' },
     { href: '/admin/delivery-log',    label: 'Delivery Log' },
     { href: '/admin/customers',       label: 'Customers' },
     { href: '/admin/dashboard',       label: 'Dashboard' },
@@ -86,7 +86,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   const driverLinks = [
     { href: '/tickets',               label: 'My Tickets' },
     { href: '/tickets/new',           label: 'New Ticket' },
-    { href: '/driver',                label: 'Orders' },
+    { href: '/driver',                label: 'Tickets' },
     { href: '/driver/delivery-log',   label: 'Delivery Log' },
     { href: '/driver/customers',      label: 'Customers' },
     { href: '/driver/hours',          label: 'Hours' },

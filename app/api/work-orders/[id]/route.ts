@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { pickEditable } from '@/lib/work-orders';
+import { withOrderMismatch } from '@/lib/order-match';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,11 +49,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, error: 'nothing to update' }, { status: 400 });
   }
 
+  // Reconcile against the order before writing. A partial update still gets
+  // compared on the ticket's full values, so changing only the rate is still
+  // checked against the order's phase and dates.
+  const { data: before } = await supabase
+    .from('work_orders')
+    .select('*')
+    .eq('id', params.id)
+    .maybeSingle();
+  const finalPatch = await withOrderMismatch(supabase, patch, before);
+
   // RLS keeps a crew member to their own draft/submitted rows and lets
   // office/admin edit anything, so no extra role check is needed here.
   const { data, error } = await supabase
     .from('work_orders')
-    .update(patch)
+    .update(finalPatch)
     .eq('id', params.id)
     .select('*')
     .maybeSingle();

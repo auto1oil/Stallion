@@ -2457,5 +2457,110 @@ create policy "wo hauler insert" on public.work_orders
 
 
 -- ==========================================================================
+-- 42. job_orders — the job everything else hangs off
+-- ==========================================================================
+-- An order is a specific job: one day, or three months. It carries the agreed
+-- terms once — customer, job number, phase, rate, FSR, equipment — and every
+-- haul ticket and every hauler dispatch points at it. That's what makes an
+-- invoice checkable: the order says what was agreed, the tickets say what
+-- happened, and anything that disagrees gets flagged rather than quietly paid.
+--
+-- Named job_orders because public.orders is already the delivery board's
+-- table. The UI calls these Orders; that one is now Tickets.
+-- ==========================================================================
+
+create sequence if not exists public.job_orders_number_seq start 1000;
+
+create table if not exists public.job_orders (
+  id              uuid primary key default gen_random_uuid(),
+  order_number    integer not null unique default nextval('public.job_orders_number_seq'),
+
+  -- Who it's for
+  business_id     uuid references public.businesses(id) on delete set null,
+  customer_number text,
+
+  -- What it is
+  job_name        text,
+  job_number      text,
+  phase_code      text,
+  job_address     text,
+
+  -- How long it runs. One day is start_date = end_date; a three-month job is
+  -- the same two columns further apart.
+  start_date      date,
+  end_date        date,
+
+  -- The agreed terms every ticket on this order inherits, and the numbers an
+  -- incoming invoice is checked against.
+  start_time      text,          -- the daily scheduled start, not a timestamp
+  stop_time       text,
+  travel_hours    numeric(10,2),
+  down_hours      numeric(10,2),
+  rate            numeric(12,2),
+  rate_unit       text default 'hour',
+  fsr             text,
+  tonnage         numeric(12,2), -- optional; a tonnage job bills tons not hours
+  tonnage_type    text,
+  equipment_type  text,
+  unit_number     text,
+
+  status          text not null default 'open'
+    check (status in ('open', 'active', 'complete', 'cancelled')),
+  notes           text,
+
+  created_by      uuid references public.profiles(id) on delete set null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+
+  constraint job_orders_dates check (end_date is null or start_date is null or end_date >= start_date)
+);
+
+create index if not exists job_orders_status_idx on public.job_orders (status, start_date desc);
+create index if not exists job_orders_job_idx    on public.job_orders (job_number);
+create index if not exists job_orders_customer_idx on public.job_orders (business_id);
+
+drop trigger if exists trg_job_orders_touch on public.job_orders;
+create trigger trg_job_orders_touch before update on public.job_orders
+  for each row execute function public.touch_updated_at();
+
+-- ---- Everything ties back to the order -----------------------------------
+alter table public.work_orders  add column if not exists order_id uuid references public.job_orders(id) on delete set null;
+alter table public.hauler_loads add column if not exists order_id uuid references public.job_orders(id) on delete set null;
+create index if not exists work_orders_order_idx  on public.work_orders (order_id);
+create index if not exists hauler_loads_order_idx on public.hauler_loads (order_id);
+
+-- A ticket that disagrees with its order — a different rate, a different
+-- phase — is flagged rather than silently billed. The office clears the flag
+-- once it has looked; clearing it is a decision someone made, so it records
+-- who and when.
+alter table public.work_orders add column if not exists order_mismatch      text;
+alter table public.work_orders add column if not exists mismatch_cleared_by uuid references public.profiles(id) on delete set null;
+alter table public.work_orders add column if not exists mismatch_cleared_at timestamptz;
+
+-- ---- RLS ----------------------------------------------------------------
+grant select, insert, update, delete on public.job_orders to authenticated;
+-- The order_number default calls nextval(), and nextval needs USAGE on the
+-- sequence itself. Without this the table grant above is not enough and
+-- every insert fails with "permission denied for sequence".
+grant usage, select on sequence public.job_orders_number_seq to authenticated;
+alter table public.job_orders enable row level security;
+
+-- Office and admin own the order book.
+drop policy if exists "job_orders staff manage" on public.job_orders;
+create policy "job_orders staff manage" on public.job_orders
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+-- Everyone who works an order can read it: crews fill tickets against it,
+-- contractors and the funder need to see what was agreed, and a hauler needs
+-- the terms of the job it was dispatched to.
+drop policy if exists "job_orders read" on public.job_orders;
+create policy "job_orders read" on public.job_orders
+  for select to authenticated
+  using (public.has_role(array['driver', 'mechanic', 'contractor', 'funder', 'hauler']));
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

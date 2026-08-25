@@ -135,6 +135,7 @@ async function startHaulTicket(
         submitted_by: userId,
         hauler_id: load.hauler_id,
         hauler_load_id: load.id,
+        order_id: load.order_id,
         trucking_company: (company as { name: string } | null)?.name ?? null,
         driver_name: actor.full_name || actor.email || null,
         unit_number: (unit as { unit_number: string | null } | null)?.unit_number ?? null,

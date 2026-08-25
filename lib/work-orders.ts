@@ -70,6 +70,11 @@ export type WorkOrder = {
   // totals a ticket the same way without having to fetch its lines.
   loads_count: number;
   loads_tons: number;
+  // The order this ticket was filed against, and what disagrees with it.
+  order_id: string | null;
+  order_mismatch: string | null;
+  mismatch_cleared_by: string | null;
+  mismatch_cleared_at: string | null;
   day_number: string | null;
   phase_code: string | null;
   claim_number: string | null;
@@ -160,6 +165,7 @@ export function countLoads(loads: Pick<WorkOrderLoad, 'load_in_at' | 'tons'>[]):
 // The columns a crew member (or the office) may set on a ticket. Everything
 // else — status, the approval stamps, the QuickBooks link — is server-owned.
 export const EDITABLE_FIELDS = [
+  'order_id',
   'customer_id', 'business_id', 'customer_number', 'job_number', 'job_name',
   'job_address', 'day_number', 'phase_code', 'claim_number', 'unit_number',
   'equipment_type', 'fsr', 'job_date', 'driver_name', 'ticket_number',

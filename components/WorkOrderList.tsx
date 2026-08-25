@@ -96,6 +96,11 @@ export default function WorkOrderList({
                   {wo.job_number ? `Job ${wo.job_number}` : 'Untitled ticket'}
                   {wo.day_number ? ` · Day ${wo.day_number}` : ''}
                 </Link>
+                {wo.order_mismatch && !wo.mismatch_cleared_at && (
+                  <div className="text-xs text-red-700 font-medium mt-0.5">
+                    Doesn&apos;t match its order: {wo.order_mismatch}
+                  </div>
+                )}
                 <div className="text-xs text-gray-500 mt-0.5">
                   {[
                     wo.job_name || null,

@@ -2,6 +2,22 @@
 
 A staff-facing summary of what the app does today. Updated as new features ship.
 
+## 📋 Orders (`/work-orders` → Orders)
+- **An order is a specific job** — one day, or three months. It carries the
+  agreed terms once: customer, job name and number, phase code, address, rate,
+  FSR, travel and down time, tonnage, equipment, unit
+- **Create order** sits top right, the same place the delivery board keeps its
+  Upload invoice button
+- **Everything ties to the order** — haul tickets are filed against one, and
+  hauler dispatches are sent for one. Picking the order on a ticket fills in
+  the terms so nothing is re-keyed
+- **Anything that disagrees is flagged.** A ticket at a different rate, on a
+  different phase, on a different job, or worked outside the order's dates
+  gets marked instead of quietly billed. The order page lists what's off, and
+  the office clears each flag deliberately — recorded as who and when
+- The check runs on the server on every save, so a flag can't be avoided from
+  the browser, and re-saving a ticket recomputes it from scratch
+
 ## 🎫 For the crew (`/tickets`)
 - **New ticket** — customer, customer #, job #, day #, phase code, claim #,
   unit # (truck), FSR, date

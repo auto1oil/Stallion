@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
+import { orderLabel, type JobOrder } from '@/lib/job-orders';
 import {
   LOAD_STATUS_LABEL, LOAD_STATUS_TONE, isFreeOn,
   type Hauler, type HaulerEquipment, type HaulerAvailability,
@@ -19,6 +20,7 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
   const [fleet, setFleet] = useState<HaulerEquipment[]>([]);
   const [windows, setWindows] = useState<HaulerAvailability[]>([]);
   const [loads, setLoads] = useState<HaulerLoad[]>([]);
+  const [orders, setOrders] = useState<JobOrder[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState('');
@@ -28,16 +30,18 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
   const [load, setLoad] = useState({
     job_number: '', job_name: '', phase_code: '', equipment_type: '',
     job_date: today(), start_time: '', pickup: '', dropoff: '',
-    rate: '', rate_unit: 'hour', notes: '', equipment_id: '',
+    rate: '', rate_unit: 'hour', notes: '', equipment_id: '', order_id: '',
   });
 
   const refresh = useCallback(async () => {
-    const [{ data: h }, { data: e }, { data: a }, { data: l }] = await Promise.all([
+    const [{ data: h }, { data: e }, { data: a }, { data: l }, { data: o }] = await Promise.all([
       supabase.from('haulers').select('*').eq('id', params.id).maybeSingle(),
       supabase.from('hauler_equipment').select('*').eq('hauler_id', params.id).order('unit_number'),
       supabase.from('hauler_availability').select('*').eq('hauler_id', params.id).order('start_date'),
       supabase.from('hauler_loads').select('*').eq('hauler_id', params.id)
         .order('job_date', { ascending: false, nullsFirst: false }),
+      supabase.from('job_orders').select('*').in('status', ['open', 'active'])
+        .order('order_number', { ascending: false }),
     ]);
     if (!h) { setError('That hauler no longer exists.'); return; }
     setHauler(h as Hauler);
@@ -45,6 +49,7 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
     setFleet((e as HaulerEquipment[]) || []);
     setWindows((a as HaulerAvailability[]) || []);
     setLoads((l as HaulerLoad[]) || []);
+    setOrders((o as JobOrder[]) || []);
   }, [params.id, supabase]);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -81,6 +86,7 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           hauler_id: params.id,
+          order_id: load.order_id || null,
           job_number: load.job_number.trim(),
           job_name: load.job_name.trim(),
           phase_code: load.phase_code.trim(),
@@ -297,6 +303,30 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
         {offering && (
           <div className="border border-gray-200 rounded-md p-3 mb-4 bg-gray-50">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <label className="col-span-2 sm:col-span-3"><span className={label}>Order</span>
+                <select
+                  value={load.order_id}
+                  onChange={(e) => {
+                    const picked = orders.find((o) => o.id === e.target.value);
+                    // Sending a load for an order carries the order's job
+                    // details onto it, so the ticket that follows starts right.
+                    setLoad({
+                      ...load,
+                      order_id: e.target.value,
+                      job_number: picked?.job_number || load.job_number,
+                      job_name: picked?.job_name || load.job_name,
+                      phase_code: picked?.phase_code || load.phase_code,
+                      equipment_type: picked?.equipment_type || load.equipment_type,
+                      rate: picked?.rate != null ? String(picked.rate) : load.rate,
+                      rate_unit: picked?.rate_unit || load.rate_unit,
+                    });
+                  }}
+                  className={input}
+                >
+                  <option value="">— No order —</option>
+                  {orders.map((o) => <option key={o.id} value={o.id}>{orderLabel(o)}</option>)}
+                </select>
+              </label>
               <label><span className={label}>Job #</span>
                 <input value={load.job_number} onChange={(e) => setLoad({ ...load, job_number: e.target.value })} className={input} />
               </label>
