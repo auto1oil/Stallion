@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
 import TicketSignature from '@/components/TicketSignature';
+import LoadLines from '@/components/LoadLines';
 import {
   onSiteHours, totalHours, ticketAmount, billableUnit,
   type WorkOrder,
@@ -22,6 +23,15 @@ type Rate = { job_number: string; phase_code: string | null; rate: number; rate_
 type Draft = Record<string, string>;
 
 const TONNAGE_TYPES = ['', 'Dirt', 'Gravel', 'Asphalt', 'Debris', 'Water', 'Other'];
+// The 'Truck Type — check one' box on the paper ticket, in the printed order.
+// StrongArm and End Dump carry a tonnage on the form, which is why there's a
+// separate tons field beside the picker.
+const TRUCK_TYPES = [
+  'Truck & Pup', 'Double Belly', '6 Axel SS or DS',
+  'StrongArm', 'Single Belly', 'Super Side',
+  'End Dump', 'Vacuum Trailer', 'Single Side',
+];
+const TRUCK_TYPES_WITH_TONS = ['StrongArm', 'End Dump'];
 // Suggestions only — the field is free text, so a unit that isn't listed
 // still gets typed in rather than being blocked.
 const EQUIPMENT_TYPES = [
@@ -36,6 +46,18 @@ function toDraft(wo: Partial<WorkOrder> | null): Draft {
     customer_number: v(wo?.customer_number),
     job_number: v(wo?.job_number),
     job_name: v(wo?.job_name),
+    job_address: v(wo?.job_address),
+    driver_name: v(wo?.driver_name),
+    ticket_number: v(wo?.ticket_number),
+    trucking_company: v(wo?.trucking_company),
+    material: v(wo?.material),
+    supplier: v(wo?.supplier),
+    truck_type: v(wo?.truck_type),
+    truck_type_tons: v(wo?.truck_type_tons),
+    driver_start_at: toLocalInput(wo?.driver_start_at ?? null),
+    driver_end_at: toLocalInput(wo?.driver_end_at ?? null),
+    signed_out_state: v(wo?.signed_out_state),
+    sign_out_at: toLocalInput(wo?.sign_out_at ?? null),
     day_number: v(wo?.day_number),
     phase_code: v(wo?.phase_code),
     claim_number: v(wo?.claim_number),
@@ -90,6 +112,9 @@ export default function WorkOrderForm({
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  // Rolled up from the load lines so the live total matches what the server
+  // will bill — it recomputes from the same rows before invoicing.
+  const [loadTotals, setLoadTotals] = useState<{ loads: number; tons: number }>({ loads: 0, tons: 0 });
 
   const id = workOrder?.id ?? null;
   const status = workOrder?.status ?? 'draft';
@@ -135,17 +160,35 @@ export default function WorkOrderForm({
     tonnage_type: draft.tonnage_type || null,
   };
   const hours = totalHours(preview);
-  const amount = ticketAmount(preview);
+  // Bill off the load lines when they carry weights, exactly as the server
+  // does at invoice time, so the figure on screen is the figure billed.
+  const previewLoads = [{ tons: loadTotals.tons }];
+  const amount = ticketAmount(preview, previewLoads);
+  const unit = billableUnit(preview, previewLoads);
 
   function body(): Record<string, unknown> {
     return {
       business_id: draft.customer_id || null,
       customer_number: draft.customer_number.trim() || null,
       job_number: draft.job_number.trim() || null,
+      job_name: draft.job_name.trim() || null,
+      job_address: draft.job_address.trim() || null,
+      driver_name: draft.driver_name.trim() || null,
+      ticket_number: draft.ticket_number.trim() || null,
+      trucking_company: draft.trucking_company.trim() || null,
+      material: draft.material.trim() || null,
+      supplier: draft.supplier.trim() || null,
+      truck_type: draft.truck_type || null,
+      truck_type_tons: draft.truck_type_tons === '' ? null : Number(draft.truck_type_tons),
+      driver_start_at: fromLocalInput(draft.driver_start_at),
+      driver_end_at: fromLocalInput(draft.driver_end_at),
+      signed_out_state: draft.signed_out_state || null,
+      sign_out_at: fromLocalInput(draft.sign_out_at),
       day_number: draft.day_number.trim() || null,
       phase_code: draft.phase_code.trim() || null,
       claim_number: draft.claim_number.trim() || null,
       unit_number: draft.unit_number.trim() || null,
+      equipment_type: draft.equipment_type.trim() || null,
       fsr: draft.fsr.trim() || null,
       job_date: draft.job_date || null,
       start_at: fromLocalInput(draft.start_at),
@@ -234,6 +277,15 @@ export default function WorkOrderForm({
               {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
+          <label><span className={label}>Driver name</span>
+            <input value={draft.driver_name} onChange={(e) => set('driver_name', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Ticket #</span>
+            <input value={draft.ticket_number} onChange={(e) => set('ticket_number', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Trucking company</span>
+            <input value={draft.trucking_company} onChange={(e) => set('trucking_company', e.target.value)} disabled={locked} className={input} />
+          </label>
           <label><span className={label}>Customer #</span>
             <input value={draft.customer_number} onChange={(e) => set('customer_number', e.target.value)} disabled={locked} className={input} />
           </label>
@@ -242,6 +294,9 @@ export default function WorkOrderForm({
           </label>
           <label className="col-span-2"><span className={label}>Job name</span>
             <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label className="col-span-2 sm:col-span-3"><span className={label}>Job address</span>
+            <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Day #</span>
             <input value={draft.day_number} onChange={(e) => set('day_number', e.target.value)} disabled={locked} className={input} />
@@ -271,6 +326,32 @@ export default function WorkOrderForm({
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Material &amp; truck</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <label><span className={label}>Material</span>
+            <input value={draft.material} onChange={(e) => set('material', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Supplier</span>
+            <input value={draft.supplier} onChange={(e) => set('supplier', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Truck type</span>
+            <select value={draft.truck_type} onChange={(e) => set('truck_type', e.target.value)} disabled={locked} className={input}>
+              <option value="">— Pick one —</option>
+              {TRUCK_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              <option value="Other">Other</option>
+            </select>
+          </label>
+          {/* StrongArm and End Dump are written with a tonnage on the paper. */}
+          {TRUCK_TYPES_WITH_TONS.includes(draft.truck_type) && (
+            <label><span className={label}>{draft.truck_type} tons</span>
+              <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.truck_type_tons}
+                onChange={(e) => set('truck_type_tons', e.target.value)} disabled={locked} className={input} />
+            </label>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Time &amp; amounts</h2>
         <div className="grid grid-cols-2 gap-3">
           <label><span className={label}>Start</span>
@@ -278,6 +359,12 @@ export default function WorkOrderForm({
           </label>
           <label><span className={label}>Stop</span>
             <input type="datetime-local" value={draft.stop_at} onChange={(e) => set('stop_at', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Driver time start</span>
+            <input type="datetime-local" value={draft.driver_start_at} onChange={(e) => set('driver_start_at', e.target.value)} disabled={locked} className={input} />
+          </label>
+          <label><span className={label}>Driver time end</span>
+            <input type="datetime-local" value={draft.driver_end_at} onChange={(e) => set('driver_end_at', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Travel hours</span>
             <input type="number" step="0.25" min="0" inputMode="decimal" value={draft.travel_hours} onChange={(e) => set('travel_hours', e.target.value)} disabled={locked} className={input} />
@@ -293,7 +380,7 @@ export default function WorkOrderForm({
               {TONNAGE_TYPES.map((t) => <option key={t} value={t}>{t || '— None —'}</option>)}
             </select>
           </label>
-          <label className="col-span-2"><span className={label}>Rate ($ per {billableUnit(preview) === 'hrs' ? 'hour' : billableUnit(preview)})</span>
+          <label className="col-span-2"><span className={label}>Rate ($ per {unit === 'hrs' ? 'hour' : unit})</span>
             <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate} onChange={(e) => set('rate', e.target.value)} disabled={locked} className={input} />
             {suggestedRate && Number(draft.rate) !== Number(suggestedRate.rate) && (
               <button
@@ -310,7 +397,45 @@ export default function WorkOrderForm({
         <div className="mt-3 rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-sm flex flex-wrap gap-x-6 gap-y-1">
           <span className="text-gray-600">On site <strong className="tabular-nums">{onSiteHours(preview.start_at, preview.stop_at).toFixed(2)}</strong> hrs</span>
           <span className="text-gray-600">Total <strong className="tabular-nums">{hours.toFixed(2)}</strong> hrs</span>
+          {loadTotals.loads > 0 && (
+            <span className="text-gray-600">
+              <strong className="tabular-nums">{loadTotals.loads}</strong> loads ·{' '}
+              <strong className="tabular-nums">{loadTotals.tons.toFixed(2)}</strong> tons
+            </span>
+          )}
           <span className="text-gray-900 font-medium">Bills <span className="tabular-nums">${amount.toFixed(2)}</span></span>
+        </div>
+      </div>
+
+      {/* The sixteen load lines. They hang off the saved ticket, so on a brand
+          new one they appear as soon as it's been saved once as a draft. */}
+      {id ? (
+        <LoadLines
+          workOrderId={id}
+          locked={locked}
+          onTotalsChange={setLoadTotals}
+        />
+      ) : (
+        <div className="bg-white border border-dashed border-gray-300 rounded-lg p-4 text-sm text-gray-600">
+          <strong className="block text-gray-900 mb-1">Loads</strong>
+          Save this ticket as a draft and the sixteen load lines open up, with
+          one-tap in and out times for each load.
+        </div>
+      )}
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Signed out</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <label><span className={label}>Loaded or empty</span>
+            <select value={draft.signed_out_state} onChange={(e) => set('signed_out_state', e.target.value)} disabled={locked} className={input}>
+              <option value="">—</option>
+              <option value="loaded">Loaded</option>
+              <option value="empty">Empty</option>
+            </select>
+          </label>
+          <label><span className={label}>Sign out time</span>
+            <input type="datetime-local" value={draft.sign_out_at} onChange={(e) => set('sign_out_at', e.target.value)} disabled={locked} className={input} />
+          </label>
         </div>
       </div>
 

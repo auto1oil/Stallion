@@ -1,5 +1,9 @@
 // The crew's side of the app: fill out a field ticket, see the ones you've
 // filed and what the office did with them.
+//
+// Haulers live here too — the haul ticket for a load they accepted is the
+// same form — so the role isn't bounced back to /hauler. RLS keeps them to
+// their own company's tickets.
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase-server';
@@ -19,7 +23,6 @@ export default async function TicketsLayout({ children }: { children: React.Reac
     .single();
   if (!profile) redirect('/login');
   if (profile.role === 'customer') redirect('/no-access');
-  if (profile.role === 'hauler') redirect('/hauler');
   if (profile.role === 'funder') redirect('/funder');
 
   const group = navGroupForRole(profile.role);

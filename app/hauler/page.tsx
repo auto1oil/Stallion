@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import {
   LOAD_STATUS_LABEL, LOAD_STATUS_TONE,
@@ -16,6 +17,7 @@ import {
 
 export default function HaulerLoadsPage() {
   const supabase = createClient();
+  const router = useRouter();
   const [loads, setLoads] = useState<HaulerLoad[]>([]);
   const [fleet, setFleet] = useState<HaulerEquipment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +58,12 @@ export default function HaulerLoadsPage() {
       if (!json.ok) { setError(json.error || 'Could not send your answer.'); return; }
       setMsg(answer === 'accept' ? 'Accepted — the office has been told.' : 'Declined.');
       setDeclining(null); setReason('');
+      // Accepting starts the haul ticket; go straight to it rather than making
+      // them find it — the load lines are the next thing they touch.
+      if (answer === 'accept' && json.work_order_id) {
+        router.push(`/tickets/${json.work_order_id}`);
+        return;
+      }
       refresh();
     } catch {
       setError('Network error — check your signal and try again.');
@@ -183,6 +191,11 @@ export default function HaulerLoadsPage() {
                           <div className="text-xs text-gray-500 mt-0.5">{details(l)}</div>
                           {l.decline_reason && (
                             <div className="text-xs text-gray-500 mt-0.5">You declined: {l.decline_reason}</div>
+                          )}
+                          {l.work_order_id && (
+                            <Link href={`/tickets/${l.work_order_id}`} className="inline-block text-xs text-brand-700 hover:underline mt-1">
+                              Open the haul ticket →
+                            </Link>
                           )}
                         </div>
                         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${LOAD_STATUS_TONE[l.status as LoadStatus]}`}>

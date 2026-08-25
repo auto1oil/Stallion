@@ -112,9 +112,14 @@ create index if not exists profiles_imported_qb_idx
 -- applied here too. Idempotent — safe to re-run. Without this, the role CHECK
 -- rejects 'customer' and the column default turns every shop signup into a
 -- 'driver' (giving customers staff access and bouncing them to /driver).
+--
+-- THIS IS THE ONLY PLACE THE ROLE LIST LIVES. A second copy further down the
+-- file breaks re-running it: this statement runs first, and it fails on any
+-- row already holding a role the later copy added. Add new roles here.
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check
-  check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin', 'customer', 'office', 'mechanic', 'labor'));
+  check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin',
+                  'customer', 'office', 'mechanic', 'labor', 'hauler'));
 alter table public.profiles alter column role set default 'customer';
 
 -- Auto-create a profile row whenever someone signs up via Supabase Auth.
@@ -2098,12 +2103,8 @@ alter table public.profiles
   add column if not exists hauler_id uuid references public.haulers(id) on delete set null;
 create index if not exists profiles_hauler_idx on public.profiles (hauler_id);
 
--- 'hauler' joins the role list. Re-running this is safe: the constraint is
--- dropped and rebuilt with the full set every time.
-alter table public.profiles drop constraint if exists profiles_role_check;
-alter table public.profiles add constraint profiles_role_check
-  check (role in ('admin', 'driver', 'contractor', 'funder', 'master_admin',
-                  'customer', 'office', 'mechanic', 'labor', 'hauler'));
+-- 'hauler' is in the role CHECK up in section 1, which is the only place the
+-- role list is defined — see the note there.
 
 -- ---- Equipment ----------------------------------------------------------
 create table if not exists public.hauler_equipment (
@@ -2263,6 +2264,196 @@ drop policy if exists "hauler loads read own" on public.hauler_loads;
 create policy "hauler loads read own" on public.hauler_loads
   for select to authenticated
   using (hauler_id = public.my_hauler_id());
+
+
+-- ==========================================================================
+-- 41. Haul ticket detail — the fields on Stallion Tank's paper ticket
+-- ==========================================================================
+-- The paper haul ticket carries more than the original work_orders columns
+-- did, and — the important part — it carries up to sixteen LOAD LINES, each
+-- with its own load in/out and unload in/out times and a tonnage. That's the
+-- child table below; one work_orders row is one paper ticket.
+--
+-- Every stamp keeps the GPS fix that was taken with it, because "he says he
+-- was on site at 7" and "the phone recorded the pit at 7:02" settle very
+-- different arguments.
+-- ==========================================================================
+
+-- ---- Header fields from the paper ticket --------------------------------
+alter table public.work_orders add column if not exists driver_name        text;
+alter table public.work_orders add column if not exists ticket_number      text;
+alter table public.work_orders add column if not exists hauler_id          uuid references public.haulers(id) on delete set null;
+alter table public.work_orders add column if not exists hauler_load_id     uuid references public.hauler_loads(id) on delete set null;
+alter table public.work_orders add column if not exists trucking_company   text;
+alter table public.work_orders add column if not exists job_address        text;
+alter table public.work_orders add column if not exists material           text;
+alter table public.work_orders add column if not exists supplier           text;
+alter table public.work_orders add column if not exists truck_type         text;
+alter table public.work_orders add column if not exists truck_type_tons    numeric(10,2);
+
+-- "Driver Time" on the paper is the driver's own clock, separate from the
+-- Start Haul / End Haul that bills (start_at / stop_at).
+alter table public.work_orders add column if not exists driver_start_at    timestamptz;
+alter table public.work_orders add column if not exists driver_end_at      timestamptz;
+
+-- Sign-out block at the foot of the ticket.
+alter table public.work_orders add column if not exists signed_out_state   text
+  check (signed_out_state is null or signed_out_state in ('loaded', 'empty'));
+alter table public.work_orders add column if not exists sign_out_at        timestamptz;
+alter table public.work_orders add column if not exists foreman_signature_path text;
+
+-- "Stallion Tank Office Use Only" — what the office actually bills, kept
+-- apart from what the driver wrote down so both survive the audit.
+alter table public.work_orders add column if not exists office_start_haul  timestamptz;
+alter table public.work_orders add column if not exists office_end_haul    timestamptz;
+alter table public.work_orders add column if not exists office_travel_hours numeric(10,2);
+alter table public.work_orders add column if not exists office_total_hours numeric(10,2);
+alter table public.work_orders add column if not exists office_comments    text;
+
+-- Rolled up off the load lines by the trigger below. Denormalised on purpose:
+-- half a dozen screens total up tickets, and if each one had to fetch the load
+-- lines to get the tonnage right, sooner or later one of them wouldn't and it
+-- would quietly show a different figure from the invoice.
+alter table public.work_orders add column if not exists loads_count integer not null default 0;
+alter table public.work_orders add column if not exists loads_tons  numeric(12,2) not null default 0;
+
+create index if not exists work_orders_hauler_idx on public.work_orders (hauler_id, created_at desc);
+
+-- ---- Load lines ---------------------------------------------------------
+create table if not exists public.work_order_loads (
+  id             uuid primary key default gen_random_uuid(),
+  work_order_id  uuid not null references public.work_orders(id) on delete cascade,
+  load_no        integer not null,
+  ticket_number  text,
+
+  -- Four stamps per load, each with the fix taken at the same moment.
+  load_in_at        timestamptz,
+  load_in_lat       numeric(9,6),
+  load_in_lng       numeric(9,6),
+  load_in_accuracy  numeric(10,2),
+
+  load_out_at       timestamptz,
+  load_out_lat      numeric(9,6),
+  load_out_lng      numeric(9,6),
+  load_out_accuracy numeric(10,2),
+
+  unload_in_at        timestamptz,
+  unload_in_lat       numeric(9,6),
+  unload_in_lng       numeric(9,6),
+  unload_in_accuracy  numeric(10,2),
+
+  unload_out_at       timestamptz,
+  unload_out_lat      numeric(9,6),
+  unload_out_lng      numeric(9,6),
+  unload_out_accuracy numeric(10,2),
+
+  tons           numeric(10,2),
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+
+  constraint work_order_loads_no_positive check (load_no >= 1),
+  constraint work_order_loads_unique unique (work_order_id, load_no)
+);
+
+create index if not exists work_order_loads_wo_idx
+  on public.work_order_loads (work_order_id, load_no);
+
+drop trigger if exists trg_work_order_loads_touch on public.work_order_loads;
+create trigger trg_work_order_loads_touch before update on public.work_order_loads
+  for each row execute function public.touch_updated_at();
+
+-- ---- Keep the ticket's totals in step with its lines ---------------------
+-- security definer because the writer often can't update work_orders itself —
+-- a hauler owns its load lines but not the ticket's columns, and once the
+-- office approves a ticket nobody but the office can touch it. The function
+-- only ever writes the two computed columns of the ticket that owns the line,
+-- and getting a line in there at all already had to pass the policies above.
+create or replace function public.sync_work_order_load_totals()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  wo_id uuid := coalesce(new.work_order_id, old.work_order_id);
+begin
+  update public.work_orders w
+     set loads_count = (
+           select count(*) from public.work_order_loads l
+            where l.work_order_id = wo_id
+              and (l.load_in_at is not null or coalesce(l.tons, 0) > 0)),
+         loads_tons = (
+           select coalesce(sum(coalesce(l.tons, 0)), 0)
+             from public.work_order_loads l
+            where l.work_order_id = wo_id)
+   where w.id = wo_id;
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_work_order_loads_totals on public.work_order_loads;
+create trigger trg_work_order_loads_totals
+  after insert or update or delete on public.work_order_loads
+  for each row execute function public.sync_work_order_load_totals();
+
+-- ---- RLS ----------------------------------------------------------------
+grant select, insert, update, delete on public.work_order_loads to authenticated;
+alter table public.work_order_loads enable row level security;
+
+-- A load line is only ever as visible as the ticket it belongs to, so every
+-- policy defers to work_orders rather than restating who may see what.
+drop policy if exists "wol read" on public.work_order_loads;
+create policy "wol read" on public.work_order_loads
+  for select to authenticated
+  using (exists (
+    select 1 from public.work_orders w
+    where w.id = work_order_loads.work_order_id
+  ));
+
+-- Writes follow the ticket too, and stop the moment it leaves the crew's
+-- hands: once it is approved the numbers are what got billed.
+drop policy if exists "wol write" on public.work_order_loads;
+create policy "wol write" on public.work_order_loads
+  for all to authenticated
+  using (exists (
+    select 1 from public.work_orders w
+    where w.id = work_order_loads.work_order_id
+      and (
+        public.is_admin()
+        or public.has_role(array['office'])
+        or w.status in ('draft', 'submitted', 'rejected')
+      )
+  ))
+  with check (exists (
+    select 1 from public.work_orders w
+    where w.id = work_order_loads.work_order_id
+      and (
+        public.is_admin()
+        or public.has_role(array['office'])
+        or w.status in ('draft', 'submitted', 'rejected')
+      )
+  ));
+
+-- ---- Haulers on the ticket side -----------------------------------------
+-- A hauler's people fill out the ticket for the load they accepted, so they
+-- read their own company's tickets and edit them while they're still open.
+drop policy if exists "wo hauler read" on public.work_orders;
+create policy "wo hauler read" on public.work_orders
+  for select to authenticated
+  using (hauler_id is not null and hauler_id = public.my_hauler_id());
+
+drop policy if exists "wo hauler edit open" on public.work_orders;
+create policy "wo hauler edit open" on public.work_orders
+  for update to authenticated
+  using (
+    hauler_id is not null and hauler_id = public.my_hauler_id()
+    and status in ('draft', 'submitted', 'rejected')
+  )
+  with check (
+    hauler_id is not null and hauler_id = public.my_hauler_id()
+    and status in ('draft', 'submitted', 'rejected')
+  );
+
+drop policy if exists "wo hauler insert" on public.work_orders;
+create policy "wo hauler insert" on public.work_orders
+  for insert to authenticated
+  with check (hauler_id is not null and hauler_id = public.my_hauler_id());
 
 
 -- ==========================================================================

@@ -13,7 +13,7 @@ import { pickEditable } from '@/lib/work-orders';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const CREATORS = ['driver', 'mechanic', 'contractor', 'office', 'admin', 'master_admin'];
+const CREATORS = ['driver', 'mechanic', 'contractor', 'hauler', 'office', 'admin', 'master_admin'];
 
 export async function GET(req: Request) {
   const supabase = createClient();
@@ -53,7 +53,11 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
 
-  const { data: actor } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const { data: actor } = await supabase
+    .from('profiles')
+    .select('role, hauler_id')
+    .eq('id', user.id)
+    .single();
   if (!actor || !CREATORS.includes(actor.role)) {
     return NextResponse.json({ ok: false, error: 'not allowed to create tickets' }, { status: 403 });
   }
@@ -63,6 +67,11 @@ export async function POST(req: Request) {
 
   const row = pickEditable(body);
   const submit = body.submit === true;
+
+  // A hauler's ticket always belongs to their own company, whatever the
+  // client posted — it's what scopes the row to them, and RLS refuses the
+  // insert outright if it's missing or someone else's.
+  if (actor.role === 'hauler') row.hauler_id = actor.hauler_id;
 
   const { data, error } = await supabase
     .from('work_orders')

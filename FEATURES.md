@@ -9,6 +9,16 @@ A staff-facing summary of what the app does today. Updated as new features ship.
   amount are calculated as you type, so nothing is added up by hand
 - **Tonnage** and tonnage type for tonnage-priced jobs (they bill tonnage ×
   rate instead of hours × rate)
+- **Sixteen load lines**, same as the paper ticket — per load a scale ticket
+  number, the tons, and **one-tap in and out times**: load in, load out,
+  unload in, unload out. Each tap stamps the time *and* the GPS fix from the
+  phone, so where the truck was is on the record next to when
+- The time is taken and shown the instant the button is pressed; the fix is
+  chased afterwards and attached if it arrives — a driver in a pit with no
+  sky still gets an accurate time
+- Loads and total tons roll up automatically, and that total is what bills
+- **Everything off the paper ticket** — driver, trucking company, truck type,
+  material and supplier, job address, driver time, and the signed-out block
 - **Suggested rate** — the agreed rate for that job/phase is one tap away
 - **Photo of the paper ticket** straight from the phone's camera, plus the
   short ticket, both compressed before upload
@@ -46,6 +56,9 @@ A staff-facing summary of what the app does today. Updated as new features ship.
   equipment needed, rate — and they get a notification and a push straight away
 - **The hauler accepts or declines** from their phone, naming which of their
   units is taking it; a decline carries a reason back to the office
+- **Accepting starts the haul ticket** with everything already known filled
+  in — company, truck, job, phase, date, rate — and drops the driver straight
+  into it. All that's left on site is the times and the loads
 - **Their fleet** — haulers add and retire their own trucks and equipment, and
   the office picks from that same list when sending a load
 - **Availability** — haulers block out the dates they can't run, by unit or for

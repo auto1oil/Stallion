@@ -86,6 +86,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
+  // Taking a load starts the haul ticket, with everything already known filled
+  // in: the company, the truck, the job, the rate. The driver is left with the
+  // load lines and the times, which is the only part they actually have to
+  // enter on site.
+  let workOrderId: string | null = load.work_order_id;
+  if (answer === 'accept' && !workOrderId) {
+    workOrderId = await startHaulTicket(db, updated as HaulerLoad, user.id, actor);
+  }
+
   await notifyDispatch(
     db,
     updated as HaulerLoad,
@@ -93,7 +102,61 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     answer,
   );
 
-  return NextResponse.json({ ok: true, load: updated });
+  return NextResponse.json({ ok: true, load: updated, work_order_id: workOrderId });
+}
+
+// Build the haul ticket the hauler will fill out on the job. Everything the
+// office already knows is carried across so the driver isn't re-keying it off
+// the load they just accepted.
+//
+// Best-effort by design: if this fails the load is still accepted. A hauler
+// looking at an accepted load with no ticket can start one by hand; a hauler
+// whose acceptance got rolled back because of a ticket-creation hiccup would
+// have no idea why.
+async function startHaulTicket(
+  db: ReturnType<typeof createAdminClient>,
+  load: HaulerLoad,
+  userId: string,
+  actor: { full_name?: string | null; email?: string | null; hauler_id?: string | null },
+): Promise<string | null> {
+  try {
+    const [{ data: company }, { data: unit }] = await Promise.all([
+      db.from('haulers').select('name').eq('id', load.hauler_id).maybeSingle(),
+      load.equipment_id
+        ? db.from('hauler_equipment').select('unit_number, equipment_type')
+            .eq('id', load.equipment_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const { data: wo, error } = await db
+      .from('work_orders')
+      .insert({
+        status: 'draft',
+        submitted_by: userId,
+        hauler_id: load.hauler_id,
+        hauler_load_id: load.id,
+        trucking_company: (company as { name: string } | null)?.name ?? null,
+        driver_name: actor.full_name || actor.email || null,
+        unit_number: (unit as { unit_number: string | null } | null)?.unit_number ?? null,
+        equipment_type:
+          (unit as { equipment_type: string | null } | null)?.equipment_type ?? load.equipment_type,
+        job_number: load.job_number,
+        job_name: load.job_name,
+        job_address: load.pickup && load.dropoff ? `${load.pickup} → ${load.dropoff}` : (load.pickup || load.dropoff),
+        phase_code: load.phase_code,
+        job_date: load.job_date,
+        rate: load.rate,
+        notes: load.notes,
+      })
+      .select('id')
+      .single();
+    if (error || !wo) return null;
+
+    await db.from('hauler_loads').update({ work_order_id: wo.id }).eq('id', load.id);
+    return wo.id as string;
+  } catch {
+    return null;
+  }
 }
 
 // Tell whoever offered the load — and the office generally — what came back.

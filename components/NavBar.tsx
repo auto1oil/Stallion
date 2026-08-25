@@ -102,6 +102,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   // Haulers see only their own company's side of the app.
   const haulerLinks = [
     { href: '/hauler',              label: 'Loads' },
+    { href: '/tickets',             label: 'Haul Tickets' },
     { href: '/hauler/equipment',    label: 'Trucks & Equipment' },
     { href: '/hauler/availability', label: 'Availability' },
     { href: '/messages',            label: 'Messages' },

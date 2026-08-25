@@ -46,6 +46,30 @@ export type WorkOrder = {
   customer_number: string | null;
   job_number: string | null;
   job_name: string | null;
+  job_address: string | null;
+  driver_name: string | null;
+  ticket_number: string | null;
+  hauler_id: string | null;
+  hauler_load_id: string | null;
+  trucking_company: string | null;
+  material: string | null;
+  supplier: string | null;
+  truck_type: string | null;
+  truck_type_tons: number | null;
+  driver_start_at: string | null;
+  driver_end_at: string | null;
+  signed_out_state: 'loaded' | 'empty' | null;
+  sign_out_at: string | null;
+  foreman_signature_path: string | null;
+  office_start_haul: string | null;
+  office_end_haul: string | null;
+  office_travel_hours: number | null;
+  office_total_hours: number | null;
+  office_comments: string | null;
+  // Rolled up off the load lines by a database trigger, so every screen
+  // totals a ticket the same way without having to fetch its lines.
+  loads_count: number;
+  loads_tons: number;
   day_number: string | null;
   phase_code: string | null;
   claim_number: string | null;
@@ -82,18 +106,75 @@ export type WorkOrder = {
   updated_at: string;
 };
 
+// One line off the paper ticket: a single load, its four stamps, and what it
+// weighed. Every stamp keeps the GPS fix taken at the same moment — the time
+// alone settles nothing when a driver and a foreman remember a day
+// differently.
+export type WorkOrderLoad = {
+  id: string;
+  work_order_id: string;
+  load_no: number;
+  ticket_number: string | null;
+  load_in_at: string | null;
+  load_in_lat: number | null;
+  load_in_lng: number | null;
+  load_in_accuracy: number | null;
+  load_out_at: string | null;
+  load_out_lat: number | null;
+  load_out_lng: number | null;
+  load_out_accuracy: number | null;
+  unload_in_at: string | null;
+  unload_in_lat: number | null;
+  unload_in_lng: number | null;
+  unload_in_accuracy: number | null;
+  unload_out_at: string | null;
+  unload_out_lat: number | null;
+  unload_out_lng: number | null;
+  unload_out_accuracy: number | null;
+  tons: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// The four stamps in the order they happen on a run.
+export const LOAD_STAMPS = [
+  { key: 'load_in', label: 'Load in' },
+  { key: 'load_out', label: 'Load out' },
+  { key: 'unload_in', label: 'Unload in' },
+  { key: 'unload_out', label: 'Unload out' },
+] as const;
+export type LoadStampKey = (typeof LOAD_STAMPS)[number]['key'];
+
+// Tons actually hauled, summed off the load lines.
+export function totalLoadTons(loads: Pick<WorkOrderLoad, 'tons'>[]): number {
+  const sum = loads.reduce((n, l) => n + Number(l.tons || 0), 0);
+  return Math.round(sum * 100) / 100;
+}
+
+// A load counts once it has been started — an untouched row on a 16-line pad
+// is not a load that ran.
+export function countLoads(loads: Pick<WorkOrderLoad, 'load_in_at' | 'tons'>[]): number {
+  return loads.filter((l) => l.load_in_at || Number(l.tons || 0) > 0).length;
+}
+
 // The columns a crew member (or the office) may set on a ticket. Everything
 // else — status, the approval stamps, the QuickBooks link — is server-owned.
 export const EDITABLE_FIELDS = [
   'customer_id', 'business_id', 'customer_number', 'job_number', 'job_name',
-  'day_number', 'phase_code', 'claim_number', 'unit_number', 'equipment_type',
-  'fsr', 'job_date',
+  'job_address', 'day_number', 'phase_code', 'claim_number', 'unit_number',
+  'equipment_type', 'fsr', 'job_date', 'driver_name', 'ticket_number',
+  'hauler_id', 'hauler_load_id', 'trucking_company', 'material', 'supplier',
+  'truck_type', 'truck_type_tons', 'driver_start_at', 'driver_end_at',
+  'signed_out_state', 'sign_out_at', 'foreman_signature_path',
   'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate',
   'tonnage', 'tonnage_type', 'ticket_photo_path', 'short_ticket_path',
   'signature_path', 'contractor_id', 'notes',
 ] as const;
 
-const NUMERIC_FIELDS = new Set(['travel_hours', 'down_hours', 'rate', 'tonnage']);
+const NUMERIC_FIELDS = new Set([
+  'travel_hours', 'down_hours', 'rate', 'tonnage', 'truck_type_tons',
+  'office_travel_hours', 'office_total_hours',
+]);
 
 // Keep only the editable columns from a request body, coercing '' to null so a
 // cleared input doesn't try to store an empty string in a numeric/date column.
@@ -134,22 +215,44 @@ export function totalHours(wo: Pick<WorkOrder, 'start_at' | 'stop_at' | 'travel_
 // What the ticket bills. Tonnage jobs bill tonnage × rate; everything else
 // bills hours × rate.
 export function ticketAmount(wo: Pick<WorkOrder,
-  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'rate' | 'tonnage' | 'tonnage_type'>): number {
+  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'rate' | 'tonnage' | 'tonnage_type'>
+  & { loads_tons?: number | null },
+  loads?: Pick<WorkOrderLoad, 'tons'>[]): number {
   const rate = Number(wo.rate || 0);
-  const qty = billableQuantity(wo);
+  const qty = billableQuantity(wo, loads);
   return Math.round(rate * qty * 100) / 100;
+}
+
+// The tonnage a ticket bills. The load lines are the record when they carry
+// weights — that's what the scale house handed over, line by line — and the
+// header tonnage is the fallback for a ticket filled out without them.
+//
+// Callers that already hold the lines (the form, mid-edit) pass them; everyone
+// else reads loads_tons off the row, which the trigger keeps in step. Both
+// routes land on the same number, which is the point.
+export function effectiveTonnage(
+  wo: Pick<WorkOrder, 'tonnage'> & { loads_tons?: number | null },
+  loads?: Pick<WorkOrderLoad, 'tons'>[],
+): number {
+  const fromLines = loads ? totalLoadTons(loads) : Number(wo.loads_tons || 0);
+  return fromLines > 0 ? fromLines : Number(wo.tonnage || 0);
 }
 
 // The quantity the rate applies to, and its unit — hours unless the ticket
 // carries tonnage, in which case the tonnage is what's billed.
 export function billableQuantity(wo: Pick<WorkOrder,
-  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'tonnage'>): number {
-  const tons = Number(wo.tonnage || 0);
+  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'tonnage'>
+  & { loads_tons?: number | null },
+  loads?: Pick<WorkOrderLoad, 'tons'>[]): number {
+  const tons = effectiveTonnage(wo, loads);
   return tons > 0 ? tons : totalHours(wo);
 }
 
-export function billableUnit(wo: Pick<WorkOrder, 'tonnage' | 'tonnage_type'>): string {
-  return Number(wo.tonnage || 0) > 0 ? (wo.tonnage_type || 'tons') : 'hrs';
+export function billableUnit(
+  wo: Pick<WorkOrder, 'tonnage' | 'tonnage_type'> & { loads_tons?: number | null },
+  loads?: Pick<WorkOrderLoad, 'tons'>[],
+): string {
+  return effectiveTonnage(wo, loads) > 0 ? (wo.tonnage_type || 'tons') : 'hrs';
 }
 
 // A one-line summary of the job for the invoice line's description.
@@ -198,7 +301,16 @@ export async function invoiceWorkOrder(db: SupabaseClient, workOrderId: string):
     return { status: 400, body: { ok: false, error: `already invoiced (#${order.qb_invoice_number || order.qb_invoice_id})` } };
   }
 
-  const qty = billableQuantity(order);
+  // The load lines are the record of what was hauled, so the billable
+  // quantity is recomputed from them here rather than trusting whatever
+  // tonnage total the ticket was saved with.
+  const { data: loadRows } = await db
+    .from('work_order_loads')
+    .select('tons')
+    .eq('work_order_id', workOrderId);
+  const loads = (loadRows as Pick<WorkOrderLoad, 'tons'>[]) || [];
+
+  const qty = billableQuantity(order, loads);
   const rate = Number(order.rate || 0);
   if (qty <= 0) return { status: 400, body: { ok: false, error: 'nothing to bill — enter the start/stop times or tonnage first' } };
   if (rate <= 0) return { status: 400, body: { ok: false, error: 'enter a rate before invoicing' } };

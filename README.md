@@ -145,6 +145,7 @@ project it is a no-op.
 | `app/haulers` | The office's hauler directory, fleets, and dispatch |
 | `app/hauler` | A hauler's own loads, equipment and availability |
 | `lib/haulers.ts` | Load statuses, availability math, the editable allowlist |
+| `components/LoadLines.tsx` | The sixteen load lines and their one-tap GPS stamps |
 | `app/api/work-orders` | Ticket CRUD, approvals, invoicing |
 | `app/admin` | Dispatch board, customers, hours, users, PO log, QuickBooks |
 | `lib/work-orders.ts` | Hour/amount math and the QuickBooks invoice routine |
