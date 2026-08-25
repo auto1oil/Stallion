@@ -24,9 +24,9 @@ export default function MarketingNav() {
     <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
       <div className="h-1 bg-accent-400" />
       <div className="max-w-5xl mx-auto px-4 flex items-center justify-between gap-3 py-3">
-        <Link href="/home" className="shrink-0 inline-flex items-center" aria-label="Stallion — Home">
+        <Link href="/home" className="shrink-0 inline-flex items-center" aria-label="Stallion Tank — Home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/stallion-logo.svg" alt="Stallion" className="h-9 w-auto" />
+          <img src="/brand/stallion-logo.png" alt="Stallion Tank" className="h-9 w-auto" />
         </Link>
         <nav className="flex items-center gap-1 flex-wrap justify-end">
           {link('/home', 'Home')}

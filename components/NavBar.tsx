@@ -170,11 +170,11 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
       <div className="max-w-5xl mx-auto px-4">
         {/* Row 1 — logo on the left, bell + email + sign out on the right. */}
         <div className="flex items-center justify-between py-3 gap-3">
-          <Link href="/" className="shrink-0 inline-flex items-center" aria-label="Stallion — Home">
+          <Link href="/" className="shrink-0 inline-flex items-center" aria-label="Stallion Tank — Home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/brand/stallion-logo.svg"
-              alt="Stallion"
+              src="/brand/stallion-logo.png"
+              alt="Stallion Tank"
               className="h-9 w-auto"
             />
           </Link>

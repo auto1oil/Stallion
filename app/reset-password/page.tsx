@@ -51,7 +51,7 @@ export default function ResetPasswordPage() {
       <div className="w-full max-w-sm bg-white rounded-lg border border-gray-200 p-8">
         <div className="text-center mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/stallion-logo.svg" alt="Stallion" className="h-16 w-auto mx-auto mb-3" />
+          <img src="/brand/stallion-logo.png" alt="Stallion Tank" className="h-16 w-auto mx-auto mb-3" />
           <p className="text-sm text-gray-500">Set a new password</p>
         </div>
 

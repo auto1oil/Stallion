@@ -15,8 +15,8 @@ export default function HomePage() {
       <section className="bg-brand-900 text-white">
         <div className="max-w-5xl mx-auto px-4 py-16 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/stallion-logo.svg" alt="Stallion" className="h-14 w-auto mx-auto mb-6 bg-white px-3 py-2 rounded" />
-          <h1 className="text-3xl sm:text-4xl font-bold">Stallion</h1>
+          <img src="/brand/stallion-logo.png" alt="Stallion Tank" className="h-16 w-auto mx-auto mb-6 bg-white px-4 py-3 rounded-lg" />
+          <h1 className="sr-only">Stallion Tank</h1>
           <p className="mt-3 text-brand-50 max-w-2xl mx-auto">
             {/* TODO(content): the real one-line description of the business. */}
             Hauling and site work, with every day&apos;s ticket filed, approved, and
