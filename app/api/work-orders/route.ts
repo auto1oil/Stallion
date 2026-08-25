@@ -42,7 +42,10 @@ export async function GET(req: Request) {
     else if (wanted.length === 1) query = query.eq('status', wanted[0]);
   }
   if (jobNumber) query = query.eq('job_number', jobNumber);
-  if (mine) query = query.eq('submitted_by', user.id);
+  // "Mine" means both the tickets someone started and the ones handed to
+  // them. A hauler's dispatcher opens the ticket and assigns a driver, so
+  // filtering on who created it would leave that driver's list empty.
+  if (mine) query = query.or(`submitted_by.eq.${user.id},assigned_to.eq.${user.id}`);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });

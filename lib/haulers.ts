@@ -91,6 +91,9 @@ export type HaulerLoad = {
   // The job this load is for. A hauler dispatched to an order is how the
   // order gets its trucks, and how the ticket that follows knows its terms.
   order_id: string | null;
+  // Which of the company's people is running it. Often the person who
+  // accepted it — a one-truck outfit takes its own loads.
+  driver_id: string | null;
   job_number: string | null;
   job_name: string | null;
   phase_code: string | null;
@@ -115,7 +118,8 @@ export type HaulerLoad = {
 // the response stamps are server-owned, the same way a ticket's approval
 // columns are.
 export const LOAD_EDITABLE_FIELDS = [
-  'hauler_id', 'equipment_id', 'work_order_id', 'order_id', 'job_number', 'job_name',
+  'hauler_id', 'equipment_id', 'work_order_id', 'order_id', 'driver_id',
+  'job_number', 'job_name',
   'phase_code', 'equipment_type', 'job_date', 'start_time', 'pickup',
   'dropoff', 'rate', 'rate_unit', 'notes',
 ] as const;

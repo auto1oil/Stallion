@@ -67,8 +67,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     responded_at: new Date().toISOString(),
     decline_reason: answer === 'decline' ? (String(body.reason || '').trim() || null) : null,
   };
-  // A hauler may name which of its own units is taking the load. Anything
-  // else it posts is ignored.
+  // A hauler may name which of its own units is taking the load, and which of
+  // its own people is driving. Both are checked against the company rather
+  // than trusted, and anything else it posts is ignored.
   if (answer === 'accept' && body.equipment_id) {
     const { data: unit } = await db
       .from('hauler_equipment')
@@ -77,6 +78,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       .eq('hauler_id', actor.hauler_id)
       .maybeSingle();
     if (unit) patch.equipment_id = unit.id;
+  }
+  if (answer === 'accept') {
+    // Defaulting to the accepter is what makes a one-truck outfit work: they
+    // take their own load and are already the driver on it.
+    const wanted = body.driver_id ? String(body.driver_id) : user.id;
+    const { data: person } = await db
+      .from('profiles')
+      .select('id')
+      .eq('id', wanted)
+      .eq('hauler_id', actor.hauler_id)
+      .maybeSingle();
+    patch.driver_id = person ? person.id : user.id;
   }
 
   const { data: updated, error } = await db

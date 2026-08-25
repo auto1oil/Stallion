@@ -21,14 +21,20 @@ export async function startHaulTicket(
   userId: string,
   actor: { full_name?: string | null; email?: string | null },
 ): Promise<string | null> {
+  // Who is driving is whoever the load was assigned to — often, but not
+  // always, the person who accepted it. A one-truck outfit takes its own
+  // loads, so the accepter and the driver are the same person.
+  const driverId = load.driver_id || userId;
   try {
-    const [{ data: company }, { data: unit }] = await Promise.all([
+    const [{ data: company }, { data: unit }, { data: driver }] = await Promise.all([
       db.from('haulers').select('name').eq('id', load.hauler_id).maybeSingle(),
       load.equipment_id
         ? db.from('hauler_equipment').select('unit_number, equipment_type')
             .eq('id', load.equipment_id).maybeSingle()
         : Promise.resolve({ data: null }),
+      db.from('profiles').select('full_name, email').eq('id', driverId).maybeSingle(),
     ]);
+    const named = driver as { full_name: string | null; email: string } | null;
 
     const { data: wo, error } = await db
       .from('work_orders')
@@ -39,7 +45,8 @@ export async function startHaulTicket(
         hauler_load_id: load.id,
         order_id: load.order_id,
         trucking_company: (company as { name: string } | null)?.name ?? null,
-        driver_name: actor.full_name || actor.email || null,
+        assigned_to: driverId,
+        driver_name: named?.full_name || named?.email || actor.full_name || actor.email || null,
         unit_number: (unit as { unit_number: string | null } | null)?.unit_number ?? null,
         equipment_type:
           (unit as { equipment_type: string | null } | null)?.equipment_type ?? load.equipment_type,

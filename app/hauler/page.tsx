@@ -27,6 +27,11 @@ export default function HaulerLoadsPage() {
   const [declining, setDeclining] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [unitFor, setUnitFor] = useState<Record<string, string>>({});
+  const [driverFor, setDriverFor] = useState<Record<string, string>>({});
+  // The company's own people, plus whoever is signed in — a one-truck outfit
+  // takes its own loads, so the owner has to be able to pick themselves.
+  const [crew, setCrew] = useState<{ id: string; full_name: string | null; email: string; active: boolean }[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [{ data: l }, { data: e }] = await Promise.all([
@@ -37,6 +42,13 @@ export default function HaulerLoadsPage() {
     ]);
     setLoads((l as HaulerLoad[]) || []);
     setFleet((e as HaulerEquipment[]) || []);
+    const { data: { user } } = await supabase.auth.getUser();
+    setMeId(user?.id ?? null);
+    try {
+      const res = await fetch('/api/haulers/drivers', { cache: 'no-store' });
+      const json = await res.json();
+      if (json.ok) setCrew(json.drivers);
+    } catch { /* the picker just falls back to 'Me' */ }
     setLoading(false);
   }, [supabase]);
 
@@ -52,6 +64,7 @@ export default function HaulerLoadsPage() {
           answer,
           reason: answer === 'decline' ? reason : undefined,
           equipment_id: answer === 'accept' ? (unitFor[id] || null) : undefined,
+          driver_id: answer === 'accept' ? (driverFor[id] || meId) : undefined,
         }),
       });
       const json = await res.json();
@@ -88,6 +101,39 @@ export default function HaulerLoadsPage() {
       setBusy('');
     }
   }
+
+  async function assignDriver(loadId: string, driverId: string) {
+    setBusy(loadId); setError('');
+    try {
+      const res = await fetch(`/api/haulers/loads/${loadId}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_id: driverId }),
+      });
+      const json = await res.json();
+      if (!json.ok) { setError(json.error || 'Could not assign that driver.'); return; }
+      refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  // Everyone who can be handed a load: the company's active drivers, and the
+  // person signed in, who may not be in that list if they are the owner.
+  const assignable = [
+    ...(meId && !crew.some((c) => c.id === meId)
+      ? [{ id: meId, full_name: 'Me', email: '', active: true }]
+      : []),
+    ...crew.filter((c) => c.active),
+  ];
+  const nameOf = (id: string | null) => {
+    if (!id) return null;
+    if (id === meId) return 'you';
+    const c = crew.find((x) => x.id === id);
+    return c ? (c.full_name || c.email) : 'someone no longer on the crew';
+  };
 
   const input = 'w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm';
   const offered = loads.filter((l) => l.status === 'offered');
@@ -175,6 +221,17 @@ export default function HaulerLoadsPage() {
                             ))}
                           </select>
                         )}
+                        <select
+                          value={driverFor[l.id] || meId || ''}
+                          onChange={(e) => setDriverFor({ ...driverFor, [l.id]: e.target.value })}
+                          className="px-2 py-1 border border-gray-300 rounded-md text-xs"
+                        >
+                          {assignable.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.id === meId ? 'Me' : (c.full_name || c.email)}
+                            </option>
+                          ))}
+                        </select>
                         <button onClick={() => respond(l.id, 'accept')} disabled={busy === l.id}
                           className="px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50">
                           {busy === l.id ? 'Sending…' : 'Accept'}
@@ -208,6 +265,26 @@ export default function HaulerLoadsPage() {
                           <div className="text-xs text-gray-500 mt-0.5">{details(l)}</div>
                           {l.decline_reason && (
                             <div className="text-xs text-gray-500 mt-0.5">You declined: {l.decline_reason}</div>
+                          )}
+                          {['accepted', 'assigned'].includes(l.status) && (
+                            <div className="flex items-center gap-2 flex-wrap mt-1">
+                              <span className="text-xs text-gray-600">
+                                Driver: <strong>{nameOf(l.driver_id) || 'not assigned'}</strong>
+                              </span>
+                              <select
+                                value={l.driver_id || ''}
+                                onChange={(e) => assignDriver(l.id, e.target.value)}
+                                disabled={busy === l.id}
+                                className="px-2 py-1 border border-gray-300 rounded-md text-xs disabled:opacity-50"
+                              >
+                                <option value="">Change driver…</option>
+                                {assignable.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.id === meId ? 'Me' : (c.full_name || c.email)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           )}
                           {l.work_order_id ? (
                             <Link href={`/tickets/${l.work_order_id}`} className="inline-block text-xs text-brand-700 hover:underline mt-1">
