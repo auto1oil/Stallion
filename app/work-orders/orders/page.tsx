@@ -24,7 +24,9 @@ export default function OrdersPage() {
   const supabase = createClient();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
+  // Open is the default: it is the work that still needs someone. Finished
+  // and cancelled orders are lookups, not a to-do list.
+  const [filter, setFilter] = useState<OrderStatus | 'all'>('open');
 
   const refresh = useCallback(async () => {
     const [{ data: orders }, { data: tickets }, { data: biz }] = await Promise.all([
@@ -103,7 +105,9 @@ export default function OrdersPage() {
         <p className="text-sm text-gray-500">
           {rows.length === 0
             ? 'No orders yet. Create the first one — it’s the job everything else gets tied to.'
-            : 'Nothing with that status.'}
+            : filter === 'open'
+              ? `No open orders. There ${rows.length === 1 ? 'is 1 order' : `are ${rows.length} orders`} under the other tabs.`
+              : 'Nothing with that status.'}
         </p>
       ) : (
         <div className="space-y-2">
