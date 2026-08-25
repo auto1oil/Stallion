@@ -25,7 +25,11 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   // Everything behind the sign-in. /home, /login, /reset-password, /no-access
   // and the legal pages stay public.
-  const isEmployeePath = path.startsWith('/admin') || path.startsWith('/driver') || path.startsWith('/tickets') || path.startsWith('/work-orders') || path.startsWith('/contractor') || path.startsWith('/funder') || path.startsWith('/settings') || path.startsWith('/tasks') || path.startsWith('/reminders') || path.startsWith('/messages');
+  //
+  // '/hauler' covers '/haulers' too. Both have to be here: this list is what
+  // forces the first-login password change, so a path missing from it leaves
+  // those people on their temporary password indefinitely.
+  const isEmployeePath = path.startsWith('/admin') || path.startsWith('/driver') || path.startsWith('/tickets') || path.startsWith('/work-orders') || path.startsWith('/contractor') || path.startsWith('/funder') || path.startsWith('/hauler') || path.startsWith('/settings') || path.startsWith('/tasks') || path.startsWith('/reminders') || path.startsWith('/messages');
 
   if (isEmployeePath && !user) {
     return NextResponse.redirect(new URL('/login', request.url));
