@@ -146,6 +146,8 @@ async function startHaulTicket(
         job_address: load.pickup && load.dropoff ? `${load.pickup} → ${load.dropoff}` : (load.pickup || load.dropoff),
         phase_code: load.phase_code,
         job_date: load.job_date,
+        // What the hauler is owed. Never the customer's rate — that lives on
+        // the order, which haulers cannot read.
         rate: load.rate,
         notes: load.notes,
       })

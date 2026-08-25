@@ -4,8 +4,13 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 
 ## 📋 Orders (`/work-orders` → Orders)
 - **An order is a specific job** — one day, or three months. It carries the
-  agreed terms once: customer, job name and number, phase code, address, rate,
-  FSR, travel and down time, tonnage, equipment, unit
+  agreed terms once: customer, job name and number, phase code, address, FSR,
+  travel and down time, tonnage, equipment, unit — and **two rates**
+- **Customer rate and hauler pay rate** are separate, with the margin shown as
+  you type. A hauler is never able to read the customer rate: it lives on the
+  order, and haulers have no access to the order book at all
+- **Add a customer without QuickBooks** — the directory used to fill only by
+  syncing, so nothing could be written until QuickBooks was connected
 - **Create order** sits top right, the same place the delivery board keeps its
   Upload invoice button
 - **Everything ties to the order** — haul tickets are filed against one, and
@@ -39,9 +44,21 @@ A staff-facing summary of what the app does today. Updated as new features ship.
 - **Photo of the paper ticket** straight from the phone's camera, plus the
   short ticket, both compressed before upload
 - **On-screen signature** for the FSR
-- **Save as a draft** on the job, submit when the photo's on it
+- **Save as a draft** on the job, **complete** it when the photo's on it
 - **My tickets** — everything you've filed, filtered by stage, showing what the
   office did with it and the reason if anything came back
+
+## 🔍 Auditing (`/work-orders` → Approve)
+- **You don't audit everything.** A ticket filed against an order, matching it
+  on rate, phase, job and dates, with a photo and something to bill, has
+  already been checked — those sit in a table you tick and pass in one go
+- **Anything the check can't vouch for goes up top with the reason**: it
+  disagrees with its order, has no order, has no photo, or has nothing to bill
+- **Choose your own fields** — 24 to pick from, and the choice is saved for the
+  whole office. The point is deciding from the row, not opening the ticket
+- **Approve in a batch** — each one still goes through the same server check
+  and raises its own QuickBooks invoice, so a batch is just N normal approvals
+- The running total of what you've ticked is on the button before you press it
 
 ## 🏢 For the office (`/work-orders`)
 - **Review queue** — every submitted ticket in one place, with a badge in the

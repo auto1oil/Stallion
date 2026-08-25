@@ -26,16 +26,16 @@ export async function computeOrderMismatch(
 
   const { data } = await db
     .from('job_orders')
-    .select('rate, phase_code, job_number, start_date, end_date')
+    .select('rate, pay_rate, phase_code, job_number, start_date, end_date')
     .eq('id', orderId)
     .maybeSingle();
   if (!data) return null;
 
   const merged = { ...(existing || {}), ...patch } as Pick<
     WorkOrder, 'rate' | 'phase_code' | 'job_number' | 'job_date'
-  >;
+  > & { hauler_id?: string | null };
   return findMismatch(merged, data as Pick<
-    JobOrder, 'rate' | 'phase_code' | 'job_number' | 'start_date' | 'end_date'
+    JobOrder, 'rate' | 'pay_rate' | 'phase_code' | 'job_number' | 'start_date' | 'end_date'
   >);
 }
 

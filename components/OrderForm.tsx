@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import CustomerPicker from '@/components/CustomerPicker';
 import { ORDER_STATUSES, ORDER_STATUS_LABEL, type JobOrder } from '@/lib/job-orders';
 
 // Create or edit an order — the job everything else gets tied to.
@@ -9,8 +10,6 @@ import { ORDER_STATUSES, ORDER_STATUS_LABEL, type JobOrder } from '@/lib/job-ord
 // The fields here are the terms the job was agreed on. Tickets filled against
 // this order inherit them, and anything a ticket disagrees with gets flagged,
 // so what's typed here is what the invoice is checked against.
-
-type Customer = { id: string; name: string };
 
 const RATE_UNITS = ['hour', 'ton', 'load', 'day'];
 const EQUIPMENT_TYPES = [
@@ -38,6 +37,7 @@ function toDraft(o: JobOrder | null): Draft {
     travel_hours: v(o?.travel_hours),
     down_hours: v(o?.down_hours),
     rate: v(o?.rate),
+    pay_rate: v(o?.pay_rate),
     rate_unit: v(o?.rate_unit) || 'hour',
     fsr: v(o?.fsr),
     tonnage: v(o?.tonnage),
@@ -53,19 +53,12 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
   const supabase = createClient();
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => toDraft(order));
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
 
   const id = order?.id ?? null;
   const set = (k: string, v: string) => setDraft((d) => ({ ...d, [k]: v }));
-
-  useEffect(() => {
-    supabase.from('businesses').select('id, name').order('name').then(({ data }) => {
-      setCustomers((data as Customer[]) || []);
-    });
-  }, [supabase]);
 
   async function save() {
     if (!draft.job_name.trim() && !draft.job_number.trim()) {
@@ -94,6 +87,7 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
       travel_hours: num(draft.travel_hours),
       down_hours: num(draft.down_hours),
       rate: num(draft.rate),
+      pay_rate: num(draft.pay_rate),
       rate_unit: draft.rate_unit || null,
       fsr: txt(draft.fsr),
       tonnage: num(draft.tonnage),
@@ -115,6 +109,12 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
     router.refresh();
   }
 
+  // Shown live so a pay rate above the bill rate is obvious while typing,
+  // not after the first invoice.
+  const margin = draft.rate.trim() !== '' && draft.pay_rate.trim() !== ''
+    ? Number(draft.rate) - Number(draft.pay_rate)
+    : null;
+
   const input = 'w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm';
   const label = 'block text-xs font-medium text-gray-600 mb-1';
   const card = 'bg-white border border-gray-200 rounded-lg p-4';
@@ -124,12 +124,9 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
       <div className={card}>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">The job</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <label className="col-span-2 sm:col-span-3"><span className={label}>Customer</span>
-            <select value={draft.business_id} onChange={(e) => set('business_id', e.target.value)} className={input}>
-              <option value="">— Pick a customer —</option>
-              {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
+          <div className="col-span-2 sm:col-span-3">
+            <CustomerPicker value={draft.business_id} onChange={(id) => set('business_id', id)} />
+          </div>
           <label><span className={label}>Customer #</span>
             <input value={draft.customer_number} onChange={(e) => set('customer_number', e.target.value)} className={input} />
           </label>
@@ -189,10 +186,25 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
           Tickets on this order start from these. Anything a ticket disagrees
           with gets flagged instead of billed quietly.
         </p>
+        {margin !== null && (
+          <p className={`text-xs mb-3 ${margin < 0 ? 'text-red-600 font-medium' : 'text-emerald-700'}`}>
+            {margin < 0
+              ? `You'd be paying $${Math.abs(margin).toFixed(2)} more than you bill.`
+              : `Margin $${margin.toFixed(2)} per ${draft.rate_unit || 'hour'}.`}
+          </p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <label><span className={label}>Rate</span>
+          <label><span className={label}>Customer rate</span>
             <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate}
               onChange={(e) => set('rate', e.target.value)} className={input} />
+            <span className="block mt-1 text-[11px] text-gray-500">What you bill.</span>
+          </label>
+          <label><span className={label}>Hauler pay rate</span>
+            <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.pay_rate}
+              onChange={(e) => set('pay_rate', e.target.value)} className={input} />
+            <span className="block mt-1 text-[11px] text-gray-500">
+              What a hauler is paid. They never see the customer rate.
+            </span>
           </label>
           <label><span className={label}>Per</span>
             <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} className={input}>

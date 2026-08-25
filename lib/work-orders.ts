@@ -22,7 +22,10 @@ export type WorkOrderStatus = (typeof WORK_ORDER_STATUSES)[number];
 
 export const STATUS_LABEL: Record<WorkOrderStatus, string> = {
   draft: 'Draft',
-  submitted: 'Submitted',
+  // Stored as 'submitted'; the crew's word for it is "completed", so that is
+  // what every screen shows. Changing the stored value would mean migrating
+  // live rows for a wording change.
+  submitted: 'Completed',
   office_approved: 'Office approved',
   funds_approved: 'Funds approved',
   invoiced: 'Invoiced',
@@ -317,7 +320,24 @@ export async function invoiceWorkOrder(db: SupabaseClient, workOrderId: string):
   const loads = (loadRows as Pick<WorkOrderLoad, 'tons'>[]) || [];
 
   const qty = billableQuantity(order, loads);
-  const rate = Number(order.rate || 0);
+
+  // The CUSTOMER's rate comes off the order, not the ticket. A hauler's ticket
+  // carries what the hauler is owed — billing the customer that number would
+  // hand them Stallion's margin. Only a ticket with no order falls back to its
+  // own rate, and there the two are the same number anyway.
+  let rate = Number(order.rate || 0);
+  if (order.order_id) {
+    const { data: jo } = await db
+      .from('job_orders')
+      .select('rate')
+      .eq('id', order.order_id)
+      .maybeSingle();
+    const billRate = Number((jo as { rate: number | null } | null)?.rate ?? 0);
+    if (billRate > 0) rate = billRate;
+    else if (order.hauler_id) {
+      return { status: 400, body: { ok: false, error: 'the order has no customer rate set — add one on the order before invoicing' } };
+    }
+  }
   if (qty <= 0) return { status: 400, body: { ok: false, error: 'nothing to bill — enter the start/stop times or tonnage first' } };
   if (rate <= 0) return { status: 400, body: { ok: false, error: 'enter a rate before invoicing' } };
 

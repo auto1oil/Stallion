@@ -2562,5 +2562,65 @@ create policy "job_orders read" on public.job_orders
 
 
 -- ==========================================================================
+-- 43. Two rates, and the audit view
+-- ==========================================================================
+-- What a hauler is paid and what the customer is billed are different numbers,
+-- and the difference is Stallion's margin. Keeping both on the ticket would
+-- hand that margin to the hauler — RLS gates rows, not columns, so anything on
+-- a row they can read is a row they can read all of.
+--
+-- So the two numbers live apart:
+--
+--   job_orders.rate      what the CUSTOMER pays. Office only.
+--   job_orders.pay_rate  the default a hauler is paid on this job. Office only.
+--   work_orders.rate     what the ticket's filer is owed. A hauler sees this
+--                        and it is their own rate, so there is nothing to leak.
+--
+-- Invoicing bills the order's rate when the ticket has an order, and falls
+-- back to the ticket's own rate when it doesn't — which is the case for
+-- Stallion's own crews working without an order, where the two are the same
+-- number anyway.
+-- ==========================================================================
+
+alter table public.job_orders add column if not exists pay_rate numeric(12,2);
+
+-- Haulers no longer read the order book: it carries the customer's rate. The
+-- load they were dispatched already carries everything they need to do the
+-- job — the site, the dates, the times, and their own rate.
+drop policy if exists "job_orders read" on public.job_orders;
+create policy "job_orders read" on public.job_orders
+  for select to authenticated
+  using (public.has_role(array['driver', 'mechanic', 'contractor', 'funder']));
+
+-- ---- Adding customers by hand --------------------------------------------
+-- The customer directory used to be filled only by syncing from QuickBooks,
+-- which meant no orders could be written until QuickBooks was connected. The
+-- office writes the directory now; a later sync still links the row up by
+-- setting qb_customer_id on it.
+drop policy if exists businesses_office_write on public.businesses;
+create policy businesses_office_write on public.businesses
+  for all to authenticated
+  using (public.has_role(array['office']))
+  with check (public.has_role(array['office']));
+
+-- Customers have no side of the app any more, so nothing should be creating
+-- businesses on their behalf.
+drop policy if exists businesses_customer_insert on public.businesses;
+
+-- ---- Audit ---------------------------------------------------------------
+-- Which fields the office wants in front of it when auditing. Stored rather
+-- than hard-coded because the fields worth eyeballing differ by outfit, and
+-- the whole point is not having to open every ticket.
+insert into public.app_settings (key, value) values
+  ('audit_fields', 'job_date,driver_name,trucking_company,unit_number,loads_count,loads_tons,total_hours,amount')
+on conflict (key) do nothing;
+
+-- A ticket the office has audited and passed without opening it. Recorded so
+-- "who let this through" always has an answer.
+alter table public.work_orders add column if not exists audited_by uuid references public.profiles(id) on delete set null;
+alter table public.work_orders add column if not exists audited_at timestamptz;
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

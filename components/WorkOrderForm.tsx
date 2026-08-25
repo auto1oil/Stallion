@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
 import TicketSignature from '@/components/TicketSignature';
 import LoadLines from '@/components/LoadLines';
+import CustomerPicker from '@/components/CustomerPicker';
 import { orderLabel, ticketDefaultsFrom, type JobOrder } from '@/lib/job-orders';
 import {
   onSiteHours, totalHours, ticketAmount, billableUnit,
@@ -112,6 +113,9 @@ export default function WorkOrderForm({
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [rates, setRates] = useState<Rate[]>([]);
   const [orders, setOrders] = useState<JobOrder[]>([]);
+  // A hauler filling their own ticket is owed the order's pay rate; the
+  // customer rate lives on the order, which haulers cannot read at all.
+  const [isHauler, setIsHauler] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -136,7 +140,7 @@ export default function WorkOrderForm({
   function applyOrder(orderId: string) {
     const picked = orders.find((o) => o.id === orderId);
     if (!picked) { set('order_id', orderId); return; }
-    const defaults = ticketDefaultsFrom(picked);
+    const defaults = ticketDefaultsFrom(picked, isHauler);
     setDraft((d) => {
       const next = { ...d, order_id: orderId };
       for (const [k, val] of Object.entries(defaults)) {
@@ -160,6 +164,11 @@ export default function WorkOrderForm({
         .map((b) => ({ id: b.id, name: b.name, business_id: b.id, profile_id: null })));
       setRates((rateRows as Rate[]) || []);
       setOrders((orderRows as JobOrder[]) || []);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+        setIsHauler(me?.role === 'hauler');
+      }
     })();
   }, [supabase]);
 
@@ -232,9 +241,9 @@ export default function WorkOrderForm({
 
   async function save(submit: boolean) {
     if (submit) {
-      if (!draft.job_number.trim()) { setError('Enter the job number before submitting.'); return; }
-      if (!draft.start_at || !draft.stop_at) { setError('Enter the start and stop times before submitting.'); return; }
-      if (!ticketPhoto) { setError('Attach a photo of the paper ticket before submitting.'); return; }
+      if (!draft.job_number.trim()) { setError('Enter the job number before completing the ticket.'); return; }
+      if (!draft.start_at || !draft.stop_at) { setError('Enter the start and stop times before completing the ticket.'); return; }
+      if (!ticketPhoto) { setError('Attach a photo of the paper ticket before completing it.'); return; }
     }
     setBusy(submit ? 'submit' : 'save'); setError(''); setMsg('');
     try {
@@ -245,7 +254,7 @@ export default function WorkOrderForm({
       });
       const json = await res.json();
       if (!json.ok) { setError(json.error || 'Could not save the ticket.'); return; }
-      setMsg(submit ? 'Submitted to the office.' : 'Saved.');
+      setMsg(submit ? 'Completed — it\u2019s with the office now.' : 'Saved.');
       onSaved?.(json.work_order as WorkOrder);
       if (!id) router.replace(`/tickets/${json.work_order.id}`);
       else router.refresh();
@@ -309,13 +318,9 @@ export default function WorkOrderForm({
                   : 'Pick the job this ticket is for and the rest fills in.'}
             </span>
           </label>
-          <label className="col-span-2 sm:col-span-3">
-            <span className={label}>Customer</span>
-            <select value={draft.customer_id} onChange={(e) => set('customer_id', e.target.value)} disabled={locked} className={input}>
-              <option value="">— Pick a customer —</option>
-              {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </label>
+          <div className="col-span-2 sm:col-span-3">
+            <CustomerPicker value={draft.customer_id} onChange={(id) => set('customer_id', id)} disabled={locked} />
+          </div>
           <label><span className={label}>Driver name</span>
             <input value={draft.driver_name} onChange={(e) => set('driver_name', e.target.value)} disabled={locked} className={input} />
           </label>
@@ -522,7 +527,7 @@ export default function WorkOrderForm({
                 disabled={!!busy}
                 className="px-4 py-2 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 disabled:opacity-50 font-medium"
               >
-                {busy === 'submit' ? 'Submitting…' : status === 'rejected' ? 'Fix and resubmit' : 'Submit ticket'}
+                {busy === 'submit' ? 'Completing…' : status === 'rejected' ? 'Fix and send back' : 'Complete ticket'}
               </button>
             )}
           </>

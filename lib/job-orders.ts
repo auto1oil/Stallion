@@ -46,7 +46,10 @@ export type JobOrder = {
   stop_time: string | null;
   travel_hours: number | null;
   down_hours: number | null;
+  // What the CUSTOMER pays. Office only — haulers cannot read this table.
   rate: number | null;
+  // What a hauler is paid on this job by default. Also office only.
+  pay_rate: number | null;
   rate_unit: string | null;
   fsr: string | null;
   tonnage: number | null;
@@ -65,12 +68,12 @@ export type JobOrder = {
 export const ORDER_EDITABLE_FIELDS = [
   'business_id', 'customer_number', 'job_name', 'job_number', 'phase_code',
   'job_address', 'start_date', 'end_date', 'start_time', 'stop_time',
-  'travel_hours', 'down_hours', 'rate', 'rate_unit', 'fsr', 'tonnage',
+  'travel_hours', 'down_hours', 'rate', 'pay_rate', 'rate_unit', 'fsr', 'tonnage',
   'tonnage_type', 'equipment_type', 'unit_number', 'status', 'notes',
 ] as const;
 
 const ORDER_NUMERIC_FIELDS = new Set([
-  'travel_hours', 'down_hours', 'rate', 'tonnage',
+  'travel_hours', 'down_hours', 'rate', 'pay_rate', 'tonnage',
 ]);
 
 export function pickOrderEditable(body: Record<string, unknown>): Record<string, unknown> {
@@ -115,7 +118,7 @@ export function orderCovers(o: Pick<JobOrder, 'start_date' | 'end_date'>, date: 
 // The fields a ticket inherits when it's filled against an order. Only the
 // ones the order actually carries — an order with no rate shouldn't wipe a
 // rate the crew already typed.
-export function ticketDefaultsFrom(o: JobOrder): Record<string, string> {
+export function ticketDefaultsFrom(o: JobOrder, forHauler = false): Record<string, string> {
   const out: Record<string, string> = {};
   const put = (k: string, v: unknown) => {
     if (v !== null && v !== undefined && v !== '') out[k] = String(v);
@@ -127,7 +130,10 @@ export function ticketDefaultsFrom(o: JobOrder): Record<string, string> {
   put('job_address', o.job_address);
   put('phase_code', o.phase_code);
   put('fsr', o.fsr);
-  put('rate', o.rate);
+  // The ticket's rate is what its filer is owed. A hauler's crew is owed the
+  // order's pay rate; Stallion's own crew tickets bill at the order's rate.
+  put('rate', forHauler ? o.pay_rate : o.rate);
+
   put('equipment_type', o.equipment_type);
   put('unit_number', o.unit_number);
   put('travel_hours', o.travel_hours);
@@ -146,13 +152,18 @@ export function ticketDefaultsFrom(o: JobOrder): Record<string, string> {
 // Returns null when the ticket lines up, or a short human-readable list of
 // what doesn't. Money is the point, so the rate leads.
 export function findMismatch(
-  wo: Pick<WorkOrder, 'rate' | 'phase_code' | 'job_number' | 'job_date'>,
-  order: Pick<JobOrder, 'rate' | 'phase_code' | 'job_number' | 'start_date' | 'end_date'>,
+  wo: Pick<WorkOrder, 'rate' | 'phase_code' | 'job_number' | 'job_date'> & { hauler_id?: string | null },
+  order: Pick<JobOrder, 'rate' | 'pay_rate' | 'phase_code' | 'job_number' | 'start_date' | 'end_date'>,
 ): string | null {
   const notes: string[] = [];
 
+  // A ticket's rate is what its filer is owed, so it is checked against the
+  // matching side of the order: a hauler against the pay rate, Stallion's own
+  // crew against the customer rate. Checking a hauler against the customer
+  // rate would flag every single ticket with the margin, which is noise.
   const woRate = wo.rate == null ? null : Number(wo.rate);
-  const orderRate = order.rate == null ? null : Number(order.rate);
+  const against = wo.hauler_id ? order.pay_rate : order.rate;
+  const orderRate = against == null ? null : Number(against);
   if (woRate != null && orderRate != null && woRate !== orderRate) {
     notes.push(`rate $${woRate.toFixed(2)} vs order $${orderRate.toFixed(2)}`);
   }
