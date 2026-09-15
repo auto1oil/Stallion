@@ -83,6 +83,94 @@ function toDraft(wo: Partial<WorkOrder> | null): Draft {
   };
 }
 
+// The time fields a driver types by hand (start, stop, driver time, sign
+// out). A datetime-local box makes them pick a full date and fight a tiny
+// text field; this is a date that already says today plus hour/minute/AM-PM
+// selects, which phones render as scroll wheels. Starts assume AM, ends
+// assume PM — pick an hour and the rest is already right for a normal day.
+const WHEEL_HOURS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+const WHEEL_MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+
+function TimeWheel({
+  label,
+  value,
+  onChange,
+  disabled,
+  defaultDate,
+  defaultMeridiem,
+}: {
+  label: string;
+  value: string; // 'YYYY-MM-DDTHH:mm' local, or ''
+  onChange: (v: string) => void;
+  disabled: boolean;
+  defaultDate: string;
+  defaultMeridiem: 'AM' | 'PM';
+}) {
+  const [datePart, timePart] = value ? value.split('T') : ['', ''];
+  let hour12 = '';
+  let minute = '';
+  let mer: 'AM' | 'PM' = defaultMeridiem;
+  if (timePart) {
+    const [hStr, mStr] = timePart.split(':');
+    const h = Number(hStr);
+    mer = h >= 12 ? 'PM' : 'AM';
+    hour12 = String(((h + 11) % 12) + 1);
+    minute = mStr || '00';
+  }
+  const date = datePart || defaultDate;
+
+  function emit(nd: string, nh: string, nm: string, nmer: 'AM' | 'PM') {
+    // No hour picked yet means no time at all — a cleared field stays clear.
+    if (!nh) { onChange(''); return; }
+    let h = Number(nh) % 12;
+    if (nmer === 'PM') h += 12;
+    onChange(`${nd || defaultDate}T${String(h).padStart(2, '0')}:${nm || '00'}`);
+  }
+
+  const sel = 'px-1.5 py-1.5 border border-gray-300 rounded-md text-sm bg-white disabled:bg-gray-100';
+  // An exact minute from a stamp or an older ticket stays selectable even if
+  // it isn't on the 5-minute wheel.
+  const minutes = minute && !WHEEL_MINUTES.includes(minute)
+    ? [...WHEEL_MINUTES, minute].sort()
+    : WHEEL_MINUTES;
+
+  return (
+    <label className="col-span-2">
+      <span className="block text-xs font-medium text-gray-600 mb-1">{label}</span>
+      <div className="flex gap-1.5 items-center flex-wrap">
+        <input
+          type="date"
+          value={date}
+          disabled={disabled}
+          onChange={(e) => emit(e.target.value, hour12, minute, mer)}
+          className={`${sel} flex-1 min-w-[130px]`}
+        />
+        <select value={hour12} disabled={disabled} className={sel}
+          onChange={(e) => emit(date, e.target.value, minute, mer)}>
+          <option value="">hr</option>
+          {WHEEL_HOURS.map((h) => <option key={h} value={h}>{h}</option>)}
+        </select>
+        <span className="text-gray-400">:</span>
+        <select value={minute} disabled={disabled} className={sel}
+          onChange={(e) => emit(date, hour12 || (defaultMeridiem === 'AM' ? '7' : '5'), e.target.value, mer)}>
+          <option value="">min</option>
+          {minutes.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select value={mer} disabled={disabled} className={sel}
+          onChange={(e) => emit(date, hour12, minute, e.target.value as 'AM' | 'PM')}>
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
+        {value && !disabled && (
+          <button type="button" onClick={() => onChange('')} className="text-xs text-gray-400 hover:text-red-600">
+            clear
+          </button>
+        )}
+      </div>
+    </label>
+  );
+}
+
 // <input type="datetime-local"> speaks local wall-clock time; the column stores
 // an absolute instant. Convert both ways so a saved ticket reopens showing the
 // same times the crew typed.
@@ -511,18 +599,14 @@ export default function WorkOrderForm({
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Time &amp; amounts</h2>
         <div className="grid grid-cols-2 gap-3">
-          <label><span className={label}>Start</span>
-            <input type="datetime-local" value={draft.start_at} onChange={(e) => set('start_at', e.target.value)} disabled={locked} className={input} />
-          </label>
-          <label><span className={label}>Stop</span>
-            <input type="datetime-local" value={draft.stop_at} onChange={(e) => set('stop_at', e.target.value)} disabled={locked} className={input} />
-          </label>
-          <label><span className={label}>Driver time start</span>
-            <input type="datetime-local" value={draft.driver_start_at} onChange={(e) => set('driver_start_at', e.target.value)} disabled={locked} className={input} />
-          </label>
-          <label><span className={label}>Driver time end</span>
-            <input type="datetime-local" value={draft.driver_end_at} onChange={(e) => set('driver_end_at', e.target.value)} disabled={locked} className={input} />
-          </label>
+          <TimeWheel label="Start" value={draft.start_at} onChange={(v) => set('start_at', v)}
+            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="AM" />
+          <TimeWheel label="Stop" value={draft.stop_at} onChange={(v) => set('stop_at', v)}
+            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="PM" />
+          <TimeWheel label="Driver time start" value={draft.driver_start_at} onChange={(v) => set('driver_start_at', v)}
+            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="AM" />
+          <TimeWheel label="Driver time end" value={draft.driver_end_at} onChange={(v) => set('driver_end_at', v)}
+            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="PM" />
           <label><span className={label}>Travel hours</span>
             <input type="number" step="0.25" min="0" inputMode="decimal" value={draft.travel_hours} onChange={(e) => set('travel_hours', e.target.value)} disabled={locked} className={input} />
           </label>
@@ -620,9 +704,8 @@ export default function WorkOrderForm({
               <option value="empty">Empty</option>
             </select>
           </label>
-          <label><span className={label}>Sign out time</span>
-            <input type="datetime-local" value={draft.sign_out_at} onChange={(e) => set('sign_out_at', e.target.value)} disabled={locked} className={input} />
-          </label>
+          <TimeWheel label="Sign out time" value={draft.sign_out_at} onChange={(v) => set('sign_out_at', v)}
+            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="PM" />
         </div>
       </div>
 
