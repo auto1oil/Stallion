@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase-browser';
 import {
   LOAD_STAMPS, totalLoadTons, countLoads,
@@ -54,6 +54,11 @@ function getFix(): Promise<Fix> {
 
 const clockOf = (iso: string | null) =>
   iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+// Where the floating stamp button sits, remembered per device. It's a
+// per-driver convenience — a lost value just puts the button back in the
+// corner.
+const FAB_POS_KEY = 'stallion-stamp-fab-pos';
 
 export default function LoadLines({ workOrderId, locked = false, onTotalsChange }: Props) {
   const supabase = createClient();
@@ -150,6 +155,87 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
   const showBlank = !locked && loads.length < MAX_LOADS;
   const tons = totalLoadTons(loads);
   const count = countLoads(loads);
+
+  // ---- The floating stamp button ------------------------------------------
+  // A driver mid-haul lives in the in/out cycle: load in → load out →
+  // unload in → unload out → next load's in. After the first Load In on the
+  // cards, this button floats over the page pre-armed with whichever stamp
+  // comes next, so the whole day is the same thumb on the same spot. Hold and
+  // drag to park it anywhere; the spot is remembered on the device.
+  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
+  const fabRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FAB_POS_KEY);
+      if (saved) {
+        const p = JSON.parse(saved) as { x: number; y: number };
+        if (Number.isFinite(p.x) && Number.isFinite(p.y)) setFabPos(p);
+      }
+    } catch { /* corner default is fine */ }
+  }, []);
+
+  // The next stamp in the cycle, walking the last load that has any time on
+  // it. Null (no button) until the first Load In, and again once all sixteen
+  // lines are done.
+  function nextStamp(): { loadNo: number; key: LoadStampKey; label: string } | null {
+    const keys = LOAD_STAMPS.map((s) => s.key);
+    const stamped = [...loads]
+      .sort((a, b) => a.load_no - b.load_no)
+      .filter((l) => keys.some((k) => l[`${k}_at` as keyof WorkOrderLoad]));
+    if (stamped.length === 0) return null;
+    const active = stamped[stamped.length - 1];
+    for (const s of LOAD_STAMPS) {
+      if (!active[`${s.key}_at` as keyof WorkOrderLoad]) {
+        return { loadNo: active.load_no, key: s.key, label: s.label };
+      }
+    }
+    if (active.load_no + 1 > MAX_LOADS) return null;
+    return { loadNo: active.load_no + 1, key: 'load_in', label: 'Load in' };
+  }
+  const next = !locked && !loading ? nextStamp() : null;
+
+  const clamp = (p: { x: number; y: number }) => {
+    const w = fabRef.current?.offsetWidth ?? 140;
+    const h = fabRef.current?.offsetHeight ?? 80;
+    return {
+      x: Math.min(Math.max(4, p.x), window.innerWidth - w - 4),
+      y: Math.min(Math.max(4, p.y), window.innerHeight - h - 4),
+    };
+  };
+
+  function fabPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const el = fabRef.current;
+    if (!el) return;
+    el.setPointerCapture(e.pointerId);
+    const rect = el.getBoundingClientRect();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top, moved: false };
+  }
+  function fabPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    // A real drag, not a shaky thumb — below this it still counts as a tap.
+    if (!d.moved && Math.hypot(dx, dy) < 8) return;
+    d.moved = true;
+    setFabPos(clamp({ x: d.origX + dx, y: d.origY + dy }));
+  }
+  function fabPointerUp() {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d) return;
+    if (d.moved) {
+      // Parked: remember the spot on this device.
+      setFabPos((p) => {
+        try { if (p) localStorage.setItem(FAB_POS_KEY, JSON.stringify(p)); } catch { /* fine */ }
+        return p;
+      });
+    } else if (next && !busy) {
+      stamp(next.loadNo, next.key);
+    }
+  }
 
   const input = 'w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm';
 
@@ -267,6 +353,40 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
               second ticket for anything past this.
             </p>
           )}
+        </div>
+      )}
+
+      {/* The floating next-stamp button. touch-none stops the page scrolling
+          out from under a drag. */}
+      {next && (
+        <div
+          ref={fabRef}
+          onPointerDown={fabPointerDown}
+          onPointerMove={fabPointerMove}
+          onPointerUp={fabPointerUp}
+          onPointerCancel={() => { dragRef.current = null; }}
+          style={fabPos
+            ? { left: fabPos.x, top: fabPos.y }
+            : { right: 16, bottom: 90 }}
+          className="fixed z-50 touch-none select-none cursor-grab active:cursor-grabbing"
+        >
+          <div className={`rounded-2xl shadow-xl border-2 px-5 py-3 text-center min-w-[132px] ${
+            busy
+              ? 'bg-gray-500 border-gray-500 text-white'
+              : next.key.startsWith('load')
+                ? 'bg-brand-700 border-brand-900 text-white'
+                : 'bg-accent-400 border-accent-500 text-white'
+          }`}>
+            <span className="block text-[10px] uppercase tracking-wide opacity-80">
+              Load {next.loadNo}
+            </span>
+            <span className="block text-lg font-bold leading-tight">
+              {busy ? 'Saving…' : next.label}
+            </span>
+            <span className="block text-[9px] opacity-70 mt-0.5">
+              tap to stamp · hold &amp; drag to move
+            </span>
+          </div>
         </div>
       )}
     </div>
