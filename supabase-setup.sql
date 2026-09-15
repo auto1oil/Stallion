@@ -44,6 +44,20 @@ as $$
   );
 $$;
 
+-- Defined here (not just in the later master-admin section) because policy
+-- expressions resolve function references at creation time, and app_settings'
+-- policies below reference it. The later definition is identical.
+create or replace function public.is_master_admin()
+returns boolean
+language sql
+stable
+security definer
+as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'master_admin'
+  );
+$$;
+
 create or replace function public.has_role(roles text[])
 returns boolean
 language sql
@@ -1020,11 +1034,24 @@ create table if not exists public.app_settings (
   value text
 );
 alter table public.app_settings enable row level security;
+-- The factoring connection is a credential, so those two keys are the master
+-- admin's alone; everything else stays admin-wide. The server reads settings
+-- with the service role either way, so the hand-off itself is unaffected.
 drop policy if exists "Admins manage app_settings" on public.app_settings;
 create policy "Admins manage app_settings" on public.app_settings
   for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (public.is_admin()
+    and key not in ('factoring_webhook_url', 'factoring_api_key'))
+  with check (public.is_admin()
+    and key not in ('factoring_webhook_url', 'factoring_api_key'));
+
+drop policy if exists "Master admin manages factoring settings" on public.app_settings;
+create policy "Master admin manages factoring settings" on public.app_settings
+  for all to authenticated
+  using (public.is_master_admin()
+    and key in ('factoring_webhook_url', 'factoring_api_key'))
+  with check (public.is_master_admin()
+    and key in ('factoring_webhook_url', 'factoring_api_key'));
 
 -- QuickBooks token-refresh audit trail is stored as a JSON array in
 -- app_settings (key 'qb_token_log') by the server — no dedicated table needed.

@@ -32,6 +32,8 @@ export default function WorkOrderSetupPage() {
   const [rateError, setRateError] = useState('');
 
   // The factoring hand-off: where approved factor-pay tickets get POSTed.
+  // Master admin only — it's a credential, and RLS enforces the same line.
+  const [isMaster, setIsMaster] = useState(false);
   const [factorUrl, setFactorUrl] = useState('');
   const [factorKey, setFactorKey] = useState('');
   const [savedFactor, setSavedFactor] = useState(false);
@@ -47,6 +49,11 @@ export default function WorkOrderSetupPage() {
       setItemName(m.get('work_order_qb_item_name') || '');
       setFactorUrl(m.get('factoring_webhook_url') || '');
       setFactorKey(m.get('factoring_api_key') || '');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+        setIsMaster(me?.role === 'master_admin');
+      }
       await loadRates();
       // The QuickBooks catalog is only reachable through the server route.
       try {
@@ -146,6 +153,7 @@ export default function WorkOrderSetupPage() {
         {savedItem && <p className="text-xs text-emerald-700 mt-1">Saved ✓</p>}
       </div>
 
+      {isMaster && (
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-5">
         <h2 className="font-semibold mb-1">Factoring app</h2>
         <p className="text-xs text-gray-500 mb-3">
@@ -169,6 +177,7 @@ export default function WorkOrderSetupPage() {
         </button>
         {savedFactor && <p className="text-xs text-emerald-700 mt-1">Saved ✓</p>}
       </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="font-semibold mb-1">Job rates</h2>
