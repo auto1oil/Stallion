@@ -8,8 +8,10 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
+import { createAdminClient } from '@/lib/supabase-admin';
 import { pickEditable, ORDER_LOCKED_FIELDS } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
+import { requestBillOfSale } from '@/lib/factoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,6 +87,31 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
   if (!data) return NextResponse.json({ ok: false, error: 'not found or not yours to edit' }, { status: 403 });
+
+  // A hauler completing a Factor Payment ticket signs the factoring app's
+  // bill of sale first. The check runs AFTER the save so the document is
+  // refreshed against the numbers just written; an unsigned one puts the
+  // ticket back to its previous status with everything else kept. If the
+  // factoring app can't answer, completion goes through — a signature
+  // requirement must not hinge on someone else's uptime.
+  if (
+    body.submit === true
+    && actor?.hauler_id
+    && (data as { payment_method: string | null }).payment_method === 'factor'
+  ) {
+    const admin = createAdminClient();
+    const bos = await requestBillOfSale(admin, params.id);
+    if (bos.ok && !bos.accepted) {
+      await admin.from('work_orders')
+        .update({ status: before?.status || 'draft', submitted_at: before?.submitted_at || null })
+        .eq('id', params.id);
+      return NextResponse.json({
+        ok: false,
+        error: 'Everything is saved, but a Factor Payment ticket needs the signed bill of sale before it can be completed.',
+        bill_of_sale_url: bos.url,
+      }, { status: 400 });
+    }
+  }
 
   // Tell the office a ticket is waiting. Best-effort: a failed notify must not
   // fail the submit.

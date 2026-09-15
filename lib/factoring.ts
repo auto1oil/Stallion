@@ -34,6 +34,139 @@ export async function getFactoringConfig(
   return { url, apiKey: (m.get(FACTORING_KEY_KEY) || '').trim() };
 }
 
+// One payload shape for both factoring calls — the approved-ticket webhook
+// and the bill of sale render from the same fields.
+async function buildTicketPayload(db: SupabaseClient, wo: WorkOrder) {
+  const { data: loadRows } = await db
+    .from('work_order_loads').select('*').eq('work_order_id', wo.id)
+    .order('load_no');
+  const loads = (loadRows as WorkOrderLoad[]) || [];
+
+  let haulerName: string | null = null;
+  if (wo.hauler_id) {
+    const { data: h } = await db
+      .from('haulers').select('name').eq('id', wo.hauler_id).maybeSingle();
+    haulerName = (h as { name: string } | null)?.name ?? null;
+  }
+
+  // What the HAULER is owed — their own rate on their own quantity. The
+  // customer side of the ticket is none of the factoring app's business.
+  const qty = billableQuantity(wo, loads);
+  const rate = Number(wo.rate || 0);
+  const amount = Math.round(qty * rate * 100) / 100;
+
+  return {
+    loads,
+    payload: {
+      source: 'stallion-tank',
+      ticket_id: wo.id,
+      ticket_number: wo.ticket_number,
+      job_number: wo.job_number,
+      job_name: wo.job_name,
+      job_date: wo.job_date,
+      phase_code: wo.phase_code,
+      hauler: haulerName || wo.trucking_company,
+      driver: wo.driver_name,
+      unit_number: wo.unit_number,
+      quantity: qty,
+      unit: billableUnit(wo, loads),
+      rate,
+      amount,
+      hours: totalHours(wo),
+      loads: countLoads(loads),
+      tons: totalLoadTons(loads),
+    },
+  };
+}
+
+async function postToFactoring(
+  url: string,
+  apiKey: string,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    return await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export type BillOfSale = {
+  ok: boolean;
+  url?: string;
+  accepted?: boolean;
+  accepted_by?: string | null;
+  accepted_at?: string | null;
+  // 'unreachable' means the factoring app couldn't answer — callers decide
+  // whether that blocks anything (completion doesn't wait on their uptime).
+  error?: string;
+  unreachable?: boolean;
+};
+
+// Ask the factoring app for this ticket's bill of sale. Idempotent per
+// ticket: the same URL comes back with current acceptance state, and a
+// re-POST after the ticket's numbers change refreshes the document.
+export async function requestBillOfSale(
+  db: SupabaseClient,
+  workOrderId: string,
+): Promise<BillOfSale> {
+  try {
+    const { data: row } = await db
+      .from('work_orders').select('*').eq('id', workOrderId).maybeSingle();
+    if (!row) return { ok: false, error: 'ticket not found' };
+    const wo = row as WorkOrder;
+
+    const config = await getFactoringConfig(db);
+    if (!config) {
+      return { ok: false, unreachable: true, error: 'factoring app not connected — set the endpoint under Work Orders → Setup' };
+    }
+    // The configured endpoint is the tickets webhook; the bill of sale lives
+    // beside it. Refuse loudly if the URL doesn't follow that shape rather
+    // than POSTing tickets at a guessed address.
+    if (!/\/tickets\/?$/.test(config.url)) {
+      return { ok: false, unreachable: true, error: 'the factoring endpoint URL should end in /tickets — fix it under Work Orders → Setup' };
+    }
+    const bosUrl = config.url.replace(/\/tickets\/?$/, '/bill-of-sale');
+
+    const { payload } = await buildTicketPayload(db, wo);
+    const res = await postToFactoring(bosUrl, config.apiKey, {
+      ...payload,
+      status: 'factor_payment_selected',
+    });
+    if (!res.ok) {
+      return { ok: false, unreachable: res.status >= 500, error: `factoring app answered ${res.status}` };
+    }
+    const body = (await res.json().catch(() => null)) as
+      { ok?: boolean; url?: string; accepted?: boolean; accepted_by?: string | null; accepted_at?: string | null } | null;
+    if (!body?.ok || !body.url) {
+      return { ok: false, error: 'the factoring app did not return a bill of sale' };
+    }
+    return {
+      ok: true,
+      url: body.url,
+      accepted: !!body.accepted,
+      accepted_by: body.accepted_by ?? null,
+      accepted_at: body.accepted_at ?? null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      unreachable: true,
+      error: err instanceof Error ? err.message : 'could not reach the factoring app',
+    };
+  }
+}
+
 // Send one approved, factor-marked ticket. Records the outcome on the row
 // either way: factor_sent_at on success, factor_error on failure — an error
 // with no sent-at is the retry queue.
@@ -63,24 +196,6 @@ export async function sendTicketToFactoring(
       return fail('factoring app not connected — set the endpoint under Work Orders → Setup');
     }
 
-    const { data: loadRows } = await db
-      .from('work_order_loads').select('*').eq('work_order_id', workOrderId)
-      .order('load_no');
-    const loads = (loadRows as WorkOrderLoad[]) || [];
-
-    let haulerName: string | null = null;
-    if (wo.hauler_id) {
-      const { data: h } = await db
-        .from('haulers').select('name').eq('id', wo.hauler_id).maybeSingle();
-      haulerName = (h as { name: string } | null)?.name ?? null;
-    }
-
-    // What the HAULER is owed — their own rate on their own quantity. The
-    // customer side of the ticket is none of the factoring app's business.
-    const qty = billableQuantity(wo, loads);
-    const rate = Number(wo.rate || 0);
-    const amount = Math.round(qty * rate * 100) / 100;
-
     // A fresh signed link to the ticket PDF. Generated here if invoicing
     // hasn't already done it (e.g. the office approved without invoicing). A
     // week gives their intake queue time without making the link permanent.
@@ -96,46 +211,14 @@ export async function sendTicketToFactoring(
       pdfUrl = signed?.signedUrl ?? null;
     }
 
-    const payload = {
-      source: 'stallion-tank',
+    const { payload } = await buildTicketPayload(db, wo);
+    const res = await postToFactoring(config.url, config.apiKey, {
+      ...payload,
       status: 'approved_ready_to_fund',
-      ticket_id: wo.id,
-      ticket_number: wo.ticket_number,
-      job_number: wo.job_number,
-      job_name: wo.job_name,
-      job_date: wo.job_date,
-      phase_code: wo.phase_code,
-      hauler: haulerName || wo.trucking_company,
-      driver: wo.driver_name,
-      unit_number: wo.unit_number,
-      quantity: qty,
-      unit: billableUnit(wo, loads),
-      rate,
-      amount,
-      hours: totalHours(wo),
-      loads: countLoads(loads),
-      tons: totalLoadTons(loads),
       approved_at: wo.office_approved_at,
       qb_invoice_number: wo.qb_invoice_number,
       ticket_pdf_url: pdfUrl,
-    };
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    let res: Response;
-    try {
-      res = await fetch(config.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
+    });
     if (!res.ok) {
       return fail(`factoring app answered ${res.status}`);
     }

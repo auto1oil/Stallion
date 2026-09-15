@@ -127,6 +127,11 @@ export default function WorkOrderForm({
   // Rolled up from the load lines so the live total matches what the server
   // will bill — it recomputes from the same rows before invoicing.
   const [loadTotals, setLoadTotals] = useState<{ loads: number; tons: number }>({ loads: 0, tons: 0 });
+  // The factoring app's bill of sale for a Factor Payment ticket. The hauler
+  // signs it over there; completing the ticket requires the signature.
+  const [bos, setBos] = useState<{ url: string; accepted: boolean; accepted_by: string | null; accepted_at: string | null } | null>(null);
+  const [bosBusy, setBosBusy] = useState(false);
+  const [bosError, setBosError] = useState('');
 
   const id = workOrder?.id ?? null;
   const status = workOrder?.status ?? 'draft';
@@ -255,6 +260,48 @@ export default function WorkOrderForm({
     };
   }
 
+  // Fetch (and optionally open) the bill of sale. Idempotent server-side, so
+  // calling again is how we poll for the signature. Tab opens before the
+  // await — Safari blocks a window.open that comes after one.
+  async function loadBos(open: boolean) {
+    if (!id) return;
+    setBosBusy(true); setBosError('');
+    const tab = open ? window.open('about:blank', '_blank') : null;
+    try {
+      const res = await fetch(`/api/work-orders/${id}/bill-of-sale`, { method: 'POST' });
+      const json = await res.json();
+      if (!json.ok || !json.url) {
+        tab?.close();
+        setBosError(json.error || 'Could not get the bill of sale.');
+        return;
+      }
+      setBos({
+        url: json.url,
+        accepted: !!json.accepted,
+        accepted_by: json.accepted_by ?? null,
+        accepted_at: json.accepted_at ?? null,
+      });
+      if (tab) tab.location.href = json.url;
+    } catch {
+      tab?.close();
+      setBosError('Network error — try again.');
+    } finally {
+      setBosBusy(false);
+    }
+  }
+
+  // Picking Factor Payment fetches the document; coming back to this tab
+  // after signing in the other one re-checks it, so the green tick appears
+  // without a manual refresh.
+  useEffect(() => {
+    if (!isHauler || draft.payment_method !== 'factor' || !id) return;
+    if (!bos) loadBos(false);
+    const onFocus = () => loadBos(false);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHauler, draft.payment_method, id]);
+
   async function save(submit: boolean) {
     if (submit) {
       if (!draft.job_number.trim()) { setError('Enter the job number before completing the ticket.'); return; }
@@ -270,7 +317,15 @@ export default function WorkOrderForm({
         body: JSON.stringify({ ...body(), submit }),
       });
       const json = await res.json();
-      if (!json.ok) { setError(json.error || 'Could not save the ticket.'); return; }
+      if (!json.ok) {
+        // Completing a Factor Payment ticket without the signed bill of sale
+        // saves everything and hands back the signing link — surface it.
+        if (json.bill_of_sale_url) {
+          setBos({ url: json.bill_of_sale_url, accepted: false, accepted_by: null, accepted_at: null });
+        }
+        setError(json.error || 'Could not save the ticket.');
+        return;
+      }
       setMsg(submit ? 'Completed — it\u2019s with the office now.' : 'Saved.');
       onSaved?.(json.work_order as WorkOrder);
       if (!id) router.replace(`/tickets/${json.work_order.id}`);
@@ -623,6 +678,49 @@ export default function WorkOrderForm({
               </button>
             ))}
           </div>
+
+          {/* Factor Payment comes with a bill of sale to sign at the
+              factoring app. Completing the ticket requires the signature. */}
+          {draft.payment_method === 'factor' && (
+            !id ? (
+              <p className="mt-3 text-xs text-gray-500">
+                Save the draft once and the bill of sale to sign appears here.
+              </p>
+            ) : bos?.accepted ? (
+              <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Bill of sale signed
+                {bos.accepted_by ? ` by ${bos.accepted_by}` : ''}
+                {bos.accepted_at ? ` · ${new Date(bos.accepted_at).toLocaleString()}` : ''}.
+              </p>
+            ) : (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-sm text-amber-900">
+                  The factoring company&apos;s bill of sale needs your signature before
+                  this ticket can be completed. It reflects the last saved numbers —
+                  save the draft again if you just changed times or loads.
+                </p>
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => loadBos(true)}
+                    disabled={bosBusy}
+                    className="px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+                  >
+                    {bosBusy ? 'Working…' : 'Open & sign the bill of sale'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadBos(false)}
+                    disabled={bosBusy}
+                    className="px-3 py-1.5 text-xs rounded-md border border-gray-300 hover:bg-white disabled:opacity-50"
+                  >
+                    I signed it — check again
+                  </button>
+                </div>
+                {bosError && <p className="text-xs text-red-600 mt-1.5">{bosError}</p>}
+              </div>
+            )
+          )}
         </div>
       )}
 
