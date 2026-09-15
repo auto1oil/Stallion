@@ -120,6 +120,9 @@ export type WorkOrder = {
   payment_method: 'standard' | 'factor' | null;
   factor_sent_at: string | null;
   factor_error: string | null;
+  // A bill-of-sale signature older than this doesn't count — set when the
+  // office sends the ticket back and the numbers change under the signature.
+  bos_reset_at: string | null;
   // The generated haul-ticket PDF in the work-tickets bucket.
   ticket_pdf_path: string | null;
   notes: string | null;

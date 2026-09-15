@@ -2015,6 +2015,10 @@ alter table public.work_orders add column if not exists payment_method text
 -- error filled in is the retry queue.
 alter table public.work_orders add column if not exists factor_sent_at timestamptz;
 alter table public.work_orders add column if not exists factor_error   text;
+-- Set when the office sends a factor ticket back: a bill-of-sale signature
+-- from before this moment no longer counts, because the numbers it signed
+-- off on are changing. The hauler signs the refreshed document to complete.
+alter table public.work_orders add column if not exists bos_reset_at   timestamptz;
 -- The generated haul-ticket PDF (work-tickets bucket) that rides along on the
 -- QuickBooks invoice and the factoring hand-off.
 alter table public.work_orders add column if not exists ticket_pdf_path text;

@@ -89,9 +89,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (wo.status === 'invoiced') {
       return NextResponse.json({ ok: false, error: 'this ticket is already invoiced — void the invoice in QuickBooks first' }, { status: 400 });
     }
+    // Sending a factor ticket back means the numbers are changing under the
+    // signature — the old bill of sale stops counting, and the hauler signs
+    // the refreshed one when they resubmit.
     const { data: updated, error } = await db
       .from('work_orders')
-      .update({ status: 'rejected', rejected_reason: reason })
+      .update({
+        status: 'rejected',
+        rejected_reason: reason,
+        ...(wo.payment_method === 'factor' ? { bos_reset_at: now } : {}),
+      })
       .eq('id', wo.id)
       .select('*')
       .single();

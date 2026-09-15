@@ -101,13 +101,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   ) {
     const admin = createAdminClient();
     const bos = await requestBillOfSale(admin, params.id);
-    if (bos.ok && !bos.accepted) {
+    // A signature only counts if it's newer than the last send-back: the
+    // office rejecting the ticket means the numbers changed under the old
+    // signature, so the refreshed document has to be agreed to again.
+    const resetAt = (data as { bos_reset_at: string | null }).bos_reset_at;
+    const signatureCounts = !!bos.accepted
+      && (!resetAt || (!!bos.accepted_at && new Date(bos.accepted_at) > new Date(resetAt)));
+    if (bos.ok && !signatureCounts) {
       await admin.from('work_orders')
         .update({ status: before?.status || 'draft', submitted_at: before?.submitted_at || null })
         .eq('id', params.id);
       return NextResponse.json({
         ok: false,
-        error: 'Everything is saved, but a Factor Payment ticket needs the signed bill of sale before it can be completed.',
+        error: bos.accepted
+          ? 'The office sent this ticket back, so the amounts changed — the new bill of sale needs to be signed again before completing.'
+          : 'Everything is saved, but a Factor Payment ticket needs the signed bill of sale before it can be completed.',
         bill_of_sale_url: bos.url,
       }, { status: 400 });
     }

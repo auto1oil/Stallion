@@ -180,8 +180,11 @@ export default function WorkOrderForm({
       setOrders((orderRows as JobOrder[]) || []);
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-        setIsHauler(me?.role === 'hauler');
+        // Anyone on a hauling company's side — the company login OR one of
+        // its drivers — gets the hauler treatment: no order book, job fields
+        // locked, pay-side rate only.
+        const { data: me } = await supabase.from('profiles').select('role, hauler_id').eq('id', user.id).single();
+        setIsHauler(me?.role === 'hauler' || !!me?.hauler_id);
       }
     })();
   }, [supabase]);
@@ -369,7 +372,19 @@ export default function WorkOrderForm({
   }
 
   const input = 'w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm';
+  // Order-owned fields on a hauler's ticket: shaded so it reads as "came
+  // with the job", not as a broken input.
+  const lockedField = `${input} bg-gray-100 text-gray-500 cursor-not-allowed`;
+  const jobInput = orderLocked ? lockedField : input;
   const label = 'block text-xs font-medium text-gray-600 mb-1';
+
+  // The signature stops counting once the office sends the ticket back —
+  // the refreshed bill of sale has to be agreed to again.
+  const bosStale = !!(
+    bos?.accepted
+    && workOrder?.bos_reset_at
+    && (!bos.accepted_at || new Date(bos.accepted_at) <= new Date(workOrder.bos_reset_at))
+  );
 
   return (
     <div className="space-y-4">
@@ -432,25 +447,25 @@ export default function WorkOrderForm({
             <input value={draft.trucking_company} onChange={(e) => set('trucking_company', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Customer #</span>
-            <input value={draft.customer_number} onChange={(e) => set('customer_number', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.customer_number} onChange={(e) => set('customer_number', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
           <label><span className={label}>Job #</span>
-            <input value={draft.job_number} onChange={(e) => set('job_number', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.job_number} onChange={(e) => set('job_number', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
           <label className="col-span-2"><span className={label}>Job name</span>
-            <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
           <label className="col-span-2 sm:col-span-3"><span className={label}>Job address</span>
-            <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
           <label><span className={label}>Day #</span>
             <input value={draft.day_number} onChange={(e) => set('day_number', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Phase code</span>
-            <input value={draft.phase_code} onChange={(e) => set('phase_code', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.phase_code} onChange={(e) => set('phase_code', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
           <label><span className={label}>Claim #</span>
-            <input value={draft.claim_number} onChange={(e) => set('claim_number', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.claim_number} onChange={(e) => set('claim_number', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
           <label><span className={label}>Unit # (truck)</span>
             <input value={draft.unit_number} onChange={(e) => set('unit_number', e.target.value)} disabled={locked} className={input} />
@@ -528,7 +543,7 @@ export default function WorkOrderForm({
             </select>
           </label>
           <label><span className={label}>Rate ($)</span>
-            <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate} onChange={(e) => set('rate', e.target.value)} disabled={orderLocked} className={input} />
+            <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate} onChange={(e) => set('rate', e.target.value)} disabled={orderLocked} className={jobInput} />
             {!orderLocked && suggestedRate && Number(draft.rate) !== Number(suggestedRate.rate) && (
               <button
                 type="button"
@@ -549,7 +564,7 @@ export default function WorkOrderForm({
               It comes off the order; the blank option keeps old hand-filled
               tickets on the original guess (tons if entered, else hours). */}
           <label><span className={label}>Per</span>
-            <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} disabled={orderLocked} className={input}>
+            <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} disabled={orderLocked} className={jobInput}>
               <option value="">Auto (tons if entered, else hours)</option>
               <option value="hour">Hour</option>
               <option value="ton">Ton</option>
@@ -559,7 +574,7 @@ export default function WorkOrderForm({
           </label>
           {/* The FSR rides with the money fields — it's who signs off on them. */}
           <label className="col-span-2"><span className={label}>FSR</span>
-            <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} disabled={orderLocked} className={input} />
+            <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} disabled={orderLocked} className={jobInput} />
           </label>
         </div>
 
@@ -686,7 +701,7 @@ export default function WorkOrderForm({
               <p className="mt-3 text-xs text-gray-500">
                 Save the draft once and the bill of sale to sign appears here.
               </p>
-            ) : bos?.accepted ? (
+            ) : bos?.accepted && !bosStale ? (
               <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
                 Bill of sale signed
                 {bos.accepted_by ? ` by ${bos.accepted_by}` : ''}
@@ -695,9 +710,9 @@ export default function WorkOrderForm({
             ) : (
               <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
                 <p className="text-sm text-amber-900">
-                  The factoring company&apos;s bill of sale needs your signature before
-                  this ticket can be completed. It reflects the last saved numbers —
-                  save the draft again if you just changed times or loads.
+                  {bosStale
+                    ? 'The office sent this ticket back, so the amounts changed. The refreshed bill of sale needs to be signed again before completing.'
+                    : 'The factoring company’s bill of sale needs your signature before this ticket can be completed. It reflects the last saved numbers — save the draft again if you just changed times or loads.'}
                 </p>
                 <div className="flex gap-2 mt-2 flex-wrap">
                   <button
