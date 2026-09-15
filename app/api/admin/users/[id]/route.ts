@@ -1,4 +1,5 @@
-// PATCH  /api/admin/users/[id] — change a user's sign-in email.
+// PATCH  /api/admin/users/[id] — change a user's sign-in email and/or set a
+//                                temporary password.
 // DELETE /api/admin/users/[id] — remove a user's login entirely.
 //
 // Both live behind the service role because they touch auth.users, which no
@@ -54,6 +55,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (g.error) return g.error;
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  // ---- Set a temporary password. ----
+  // The email reset link is useless when the email never arrives or the link
+  // keeps expiring — this is the admin's way through. The person is made to
+  // change it at next sign-in, so the admin never holds a live password.
+  if (typeof body.password === 'string') {
+    const password = body.password;
+    if (password.length < 6) {
+      return NextResponse.json({ ok: false, error: 'password must be at least 6 characters' }, { status: 400 });
+    }
+    const { error: pwErr } = await g.db!.auth.admin.updateUserById(params.id, { password });
+    if (pwErr) return NextResponse.json({ ok: false, error: pwErr.message }, { status: 400 });
+    await g.db!.from('profiles').update({ must_change_password: true }).eq('id', params.id);
+    return NextResponse.json({ ok: true, password_set: true });
+  }
+
   const email = String(body.email || '').trim().toLowerCase();
   if (!email || !email.includes('@')) {
     return NextResponse.json({ ok: false, error: 'enter a valid email' }, { status: 400 });

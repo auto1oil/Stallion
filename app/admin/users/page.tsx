@@ -54,6 +54,10 @@ export default function UsersPage() {
   const [rowError, setRowError] = useState<{ id: string; msg: string } | null>(null);
   const [emailDraft, setEmailDraft] = useState<{ id: string; value: string } | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
+  // Admin password reset — the way through when the email link never lands.
+  const [pwDraft, setPwDraft] = useState<{ id: string; value: string } | null>(null);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwDone, setPwDone] = useState<{ id: string; value: string } | null>(null);
   // Per-user pending changes to territory_counties, applied on save.
   const [pendingCounties, setPendingCounties] = useState<Record<string, string[]>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -148,6 +152,38 @@ export default function UsersPage() {
       setRowError({ id: u.id, msg: 'Network error — try again.' });
     } finally {
       setEmailBusy(false);
+    }
+  }
+
+  // Readable characters only — this gets read over the phone to someone in a
+  // truck. No 0/O, no 1/l/I.
+  function suggestPassword() {
+    const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let out = '';
+    const buf = new Uint32Array(10);
+    crypto.getRandomValues(buf);
+    for (const n of buf) out += alphabet[n % alphabet.length];
+    return out;
+  }
+
+  async function setPassword(u: Profile) {
+    if (!pwDraft || pwDraft.id !== u.id || pwDraft.value.length < 6) return;
+    setPwBusy(true); setRowError(null); setPwDone(null);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwDraft.value }),
+      });
+      const json = await res.json();
+      if (!json.ok) { setRowError({ id: u.id, msg: json.error || 'Could not set the password.' }); return; }
+      // Leave it on screen — the admin still has to hand it to the person.
+      setPwDone({ id: u.id, value: pwDraft.value });
+      setPwDraft(null);
+    } catch {
+      setRowError({ id: u.id, msg: 'Network error — try again.' });
+    } finally {
+      setPwBusy(false);
     }
   }
 
@@ -473,6 +509,59 @@ export default function UsersPage() {
                               <p className="mt-1 text-[11px] text-gray-500">
                                 Takes effect immediately — they sign in with the new address, no confirmation mail.
                               </p>
+                            </div>
+
+                            {/* A password the admin sets here is temporary:
+                                the person is made to pick their own at next
+                                sign-in. */}
+                            <div className="pt-3 mt-2 border-t border-gray-100">
+                              <label className="block text-xs text-gray-600 mb-1">Reset password</label>
+                              {pwDone?.id === u.id ? (
+                                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                                  <p className="text-emerald-900">
+                                    Temporary password set: <strong className="font-mono">{pwDone.value}</strong>
+                                  </p>
+                                  <p className="text-[11px] text-emerald-800 mt-1">
+                                    Give it to them now — it won&apos;t be shown again. They&apos;ll be
+                                    made to choose their own when they sign in.
+                                  </p>
+                                  <button
+                                    onClick={() => setPwDone(null)}
+                                    className="mt-2 text-xs text-emerald-900 hover:underline"
+                                  >
+                                    Done — hide it
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex gap-2 flex-wrap">
+                                    <input
+                                      value={pwDraft?.id === u.id ? pwDraft.value : ''}
+                                      onChange={(e) => setPwDraft({ id: u.id, value: e.target.value })}
+                                      placeholder="Temporary password"
+                                      autoComplete="off"
+                                      className="flex-1 min-w-[180px] px-2 py-1.5 border border-gray-300 rounded text-sm font-mono"
+                                    />
+                                    <button
+                                      onClick={() => setPwDraft({ id: u.id, value: suggestPassword() })}
+                                      className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                                    >
+                                      Suggest
+                                    </button>
+                                    <button
+                                      onClick={() => setPassword(u)}
+                                      disabled={pwBusy || pwDraft?.id !== u.id || pwDraft.value.length < 6}
+                                      className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+                                    >
+                                      {pwBusy ? 'Setting…' : 'Set password'}
+                                    </button>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-gray-500">
+                                    For when the email reset link never lands. At least 6 characters;
+                                    they&apos;re forced to change it at next sign-in.
+                                  </p>
+                                </>
+                              )}
                             </div>
 
                             <div className="pt-3 mt-2 border-t border-gray-100">
