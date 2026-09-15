@@ -36,6 +36,13 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<OrderStatus | 'all'>('open');
   const [bar, setBar] = useState<ListFilter>(EMPTY_FILTER);
   const [haulers, setHaulers] = useState<{ id: string; name: string }[]>([]);
+  // The SEND pill: dispatch an order to a hauler right off this list —
+  // pick the company and how many trucks; each truck becomes its own load.
+  const [sendFor, setSendFor] = useState<string | null>(null);
+  const [sendHauler, setSendHauler] = useState('');
+  const [sendTrucks, setSendTrucks] = useState('1');
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendNote, setSendNote] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
 
   const refresh = useCallback(async () => {
     const [{ data: orders }, { data: tickets }, { data: biz }, { data: dispatches }, { data: haulerRows }] = await Promise.all([
@@ -80,6 +87,36 @@ export default function OrdersPage() {
   }, [supabase]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  async function sendOrder(orderId: string) {
+    if (!sendHauler) { setSendNote({ id: orderId, msg: 'Pick a hauler first.', ok: false }); return; }
+    setSendBusy(true); setSendNote(null);
+    try {
+      const res = await fetch('/api/haulers/loads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hauler_id: sendHauler,
+          order_ids: [orderId],
+          trucks: Math.max(1, Number(sendTrucks) || 1),
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) { setSendNote({ id: orderId, msg: json.error || 'Could not send the order.', ok: false }); return; }
+      const name = haulers.find((h) => h.id === sendHauler)?.name || 'the hauler';
+      setSendNote({
+        id: orderId,
+        msg: `Sent ${json.count} ${json.count === 1 ? 'load' : 'loads'} to ${name} — they've been notified.`,
+        ok: true,
+      });
+      setSendFor(null);
+      refresh();
+    } catch {
+      setSendNote({ id: orderId, msg: 'Network error — try again.', ok: false });
+    } finally {
+      setSendBusy(false);
+    }
+  }
 
   // What "matches" means for an order: the job by number or name; the hauler
   // by who its loads/tickets went to; the driver by the names on its tickets;
@@ -161,13 +198,12 @@ export default function OrdersPage() {
       ) : (
         <div className="space-y-2">
           {visible.map((o) => (
-            <Link
+            <div
               key={o.id}
-              href={`/work-orders/orders/${o.id}`}
-              className="block bg-white border border-gray-200 rounded-lg px-4 py-3 hover:border-brand-300"
+              className="bg-white border border-gray-200 rounded-lg px-4 py-3 hover:border-brand-300"
             >
               <div className="flex justify-between items-start gap-3 flex-wrap">
-                <div className="min-w-0">
+                <Link href={`/work-orders/orders/${o.id}`} className="min-w-0 block flex-1">
                   <span className="font-medium text-sm">
                     #{o.order_number}
                     {o.job_name ? ` · ${o.job_name}` : o.job_number ? ` · Job ${o.job_number}` : ''}
@@ -186,19 +222,75 @@ export default function OrdersPage() {
                       {o.flagged} {o.flagged === 1 ? 'ticket doesn' : 'tickets don'}&apos;t match
                     </div>
                   )}
-                </div>
+                </Link>
                 <div className="flex items-center gap-2 shrink-0">
                   {o.tickets > 0 && (
                     <span className="text-xs text-gray-600">
                       {o.tickets} {o.tickets === 1 ? 'ticket' : 'tickets'}
                     </span>
                   )}
+                  {/* Only work that's still live gets offered out. */}
+                  {['open', 'active'].includes(o.status) && (
+                    <button
+                      onClick={() => {
+                        setSendNote(null);
+                        setSendFor(sendFor === o.id ? null : o.id);
+                        setSendHauler(''); setSendTrucks('1');
+                      }}
+                      className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
+                        sendFor === o.id
+                          ? 'bg-brand-700 text-white border-brand-700'
+                          : 'bg-accent-400 text-white border-accent-400 hover:bg-accent-500'
+                      }`}
+                    >
+                      {sendFor === o.id ? 'Cancel' : 'Send'}
+                    </button>
+                  )}
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${ORDER_STATUS_TONE[o.status]}`}>
                     {ORDER_STATUS_LABEL[o.status]}
                   </span>
                 </div>
               </div>
-            </Link>
+
+              {sendFor === o.id && (
+                <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3 flex items-end gap-3 flex-wrap">
+                  <label className="text-xs text-gray-600">Hauler
+                    <select
+                      value={sendHauler}
+                      onChange={(e) => setSendHauler(e.target.value)}
+                      className="block mt-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm bg-white min-w-[180px]"
+                    >
+                      <option value="">— Pick a hauler —</option>
+                      {haulers.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-xs text-gray-600">Trucks
+                    <input
+                      type="number" min="1" max="20" inputMode="numeric"
+                      value={sendTrucks}
+                      onChange={(e) => setSendTrucks(e.target.value)}
+                      className="block mt-1 w-20 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+                    />
+                  </label>
+                  <button
+                    onClick={() => sendOrder(o.id)}
+                    disabled={sendBusy || !sendHauler}
+                    className="px-3 py-1.5 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+                  >
+                    {sendBusy ? 'Sending…' : `Send ${Math.max(1, Number(sendTrucks) || 1)} ${(Number(sendTrucks) || 1) === 1 ? 'load' : 'loads'}`}
+                  </button>
+                  <span className="text-[11px] text-gray-500 basis-full">
+                    Each truck is its own load — the hauler accepts them and puts a driver on each.
+                    They&apos;re offered the pay rate{o.pay_rate != null ? ` ($${Number(o.pay_rate).toFixed(2)}/${o.rate_unit || 'hour'})` : ' — none set on this order yet'}.
+                  </span>
+                </div>
+              )}
+              {sendNote?.id === o.id && (
+                <p className={`mt-2 text-sm ${sendNote.ok ? 'text-emerald-700' : 'text-red-600'}`}>
+                  {sendNote.msg}
+                </p>
+              )}
+            </div>
           ))}
         </div>
       )}

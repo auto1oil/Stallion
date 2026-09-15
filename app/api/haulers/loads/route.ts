@@ -76,7 +76,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'those orders no longer exist' }, { status: 400 });
     }
     const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null;
-    const rows = orders.map((o) => ({
+    // How many trucks per order — each truck is its own load, accepted and
+    // ticketed separately. Capped so a typo can't page the hauler 500 times.
+    const trucks = Math.max(1, Math.min(20, Math.trunc(Number(body.trucks)) || 1));
+    const rows = orders.flatMap((o) => Array.from({ length: trucks }, () => ({
       hauler_id: haulerId,
       order_id: o.id,
       job_number: o.job_number,
@@ -91,7 +94,7 @@ export async function POST(req: Request) {
       notes,
       status: 'offered',
       assigned_by: user.id,
-    }));
+    })));
     const { data: created, error: insErr } = await supabase
       .from('hauler_loads').insert(rows).select('*');
     if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 400 });
