@@ -17,6 +17,8 @@ export default function OfficeWorkOrderPage({ params }: { params: { id: string }
   const [error, setError] = useState('');
   const [invoiceBusy, setInvoiceBusy] = useState(false);
   const [invoiceMsg, setInvoiceMsg] = useState('');
+  const [factorBusy, setFactorBusy] = useState(false);
+  const [factorMsg, setFactorMsg] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -53,6 +55,27 @@ export default function OfficeWorkOrderPage({ params }: { params: { id: string }
     if (json.ok) {
       const fresh = await fetch(`/api/work-orders/${wo.id}`, { cache: 'no-store' }).then((r) => r.json());
       if (fresh.ok) setWo(fresh.work_order as WorkOrder);
+    }
+  }
+
+  // Retry the factoring hand-off for a factor-pay ticket that didn't land.
+  async function sendToFactoring() {
+    if (!wo) return;
+    setFactorBusy(true); setFactorMsg('');
+    try {
+      const res = await fetch(`/api/work-orders/${wo.id}/factor`, { method: 'POST' });
+      const json = await res.json();
+      setFactorMsg(json.ok
+        ? (json.already_sent ? 'Already with the factoring app.' : 'Sent — the factoring app has it.')
+        : (json.error || 'Could not reach the factoring app.'));
+      if (json.ok) {
+        const fresh = await fetch(`/api/work-orders/${wo.id}`, { cache: 'no-store' }).then((r) => r.json());
+        if (fresh.ok) setWo(fresh.work_order as WorkOrder);
+      }
+    } catch {
+      setFactorMsg('Network error — try again.');
+    } finally {
+      setFactorBusy(false);
     }
   }
 
@@ -109,6 +132,35 @@ export default function OfficeWorkOrderPage({ params }: { params: { id: string }
         </p>
       )}
       {invoiceMsg && <p className="text-sm text-gray-700 mb-3">{invoiceMsg}</p>}
+
+      {/* Factor-pay tickets: where the hand-off stands, and the retry when it
+          didn't land. Standard-pay tickets show none of this. */}
+      {wo.payment_method === 'factor' && (
+        wo.factor_sent_at ? (
+          <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 mb-3">
+            Factor Payment — sent to the factoring app {new Date(wo.factor_sent_at).toLocaleString()}.
+          </p>
+        ) : wo.office_approved_at ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3 flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-sm text-amber-900">
+              Factor Payment — not with the factoring app yet
+              {wo.factor_error ? `: ${wo.factor_error}` : ''}.
+            </span>
+            <button
+              onClick={sendToFactoring}
+              disabled={factorBusy}
+              className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 disabled:opacity-50 font-medium"
+            >
+              {factorBusy ? 'Sending…' : 'Resend to factoring'}
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 mb-3">
+            Factor Payment — goes to the factoring app automatically once the office approves.
+          </p>
+        )
+      )}
+      {factorMsg && <p className="text-sm text-gray-700 mb-3">{factorMsg}</p>}
 
       <WorkOrderForm workOrder={wo} canApprove onSaved={setWo} />
     </div>

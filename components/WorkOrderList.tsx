@@ -157,6 +157,15 @@ export default function WorkOrderList({
                 {wo.contractor_approved_at && (
                   <span className="text-[10px] text-emerald-700">Contractor ✓</span>
                 )}
+                {wo.payment_method === 'factor' && (
+                  wo.factor_sent_at ? (
+                    <span className="text-[10px] text-emerald-700">Factored ✓</span>
+                  ) : wo.office_approved_at ? (
+                    <span className="text-[10px] text-red-600 font-medium">Factoring not sent</span>
+                  ) : (
+                    <span className="text-[10px] text-gray-500">Factor pay</span>
+                  )
+                )}
                 {action && action.when(wo) && (
                   <button
                     onClick={() => runAction(wo)}
