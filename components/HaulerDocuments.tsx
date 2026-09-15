@@ -82,11 +82,16 @@ export default function HaulerDocuments({
   // stored — a stored URL would either expire or be a way around the policy.
   async function open(d: HaulerDocument) {
     setBusy(d.id); setError('');
+    // The tab opens synchronously and gets its address after — Safari blocks
+    // a window.open that arrives after an await, which reads as "the PDF
+    // doesn't open".
+    const tab = window.open('about:blank', '_blank');
     const { data, error: err } = await supabase.storage
       .from(HAULER_DOC_BUCKET).createSignedUrl(d.file_path, 300);
     setBusy('');
-    if (err || !data?.signedUrl) { setError('Could not open that file.'); return; }
-    window.open(data.signedUrl, '_blank', 'noopener');
+    if (err || !data?.signedUrl) { tab?.close(); setError('Could not open that file.'); return; }
+    if (tab) tab.location.href = data.signedUrl;
+    else window.location.href = data.signedUrl;
   }
 
   async function remove(d: HaulerDocument) {

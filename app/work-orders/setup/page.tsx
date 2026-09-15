@@ -31,15 +31,22 @@ export default function WorkOrderSetupPage() {
   const [newRate, setNewRate] = useState({ job_number: '', phase_code: '', description: '', rate: '', rate_unit: 'hour' });
   const [rateError, setRateError] = useState('');
 
+  // The factoring hand-off: where approved factor-pay tickets get POSTed.
+  const [factorUrl, setFactorUrl] = useState('');
+  const [factorKey, setFactorKey] = useState('');
+  const [savedFactor, setSavedFactor] = useState(false);
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from('app_settings')
         .select('key, value')
-        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name']);
+        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key']);
       const m = new Map(((data as { key: string; value: string }[]) || []).map((r) => [r.key, r.value]));
       setItemId(m.get('work_order_qb_item_id') || '');
       setItemName(m.get('work_order_qb_item_name') || '');
+      setFactorUrl(m.get('factoring_webhook_url') || '');
+      setFactorKey(m.get('factoring_api_key') || '');
       await loadRates();
       // The QuickBooks catalog is only reachable through the server route.
       try {
@@ -73,6 +80,16 @@ export default function WorkOrderSetupPage() {
     ], { onConflict: 'key' });
     setSavedItem(true);
     setTimeout(() => setSavedItem(false), 1500);
+  }
+
+  async function saveFactoring() {
+    setSavedFactor(false);
+    await supabase.from('app_settings').upsert([
+      { key: 'factoring_webhook_url', value: factorUrl.trim() },
+      { key: 'factoring_api_key', value: factorKey.trim() },
+    ], { onConflict: 'key' });
+    setSavedFactor(true);
+    setTimeout(() => setSavedFactor(false), 1500);
   }
 
   async function addRate() {
@@ -127,6 +144,30 @@ export default function WorkOrderSetupPage() {
         )}
         {itemId && <p className="text-xs text-gray-500 mt-2">Billing as <strong>{itemName || itemId}</strong>.</p>}
         {savedItem && <p className="text-xs text-emerald-700 mt-1">Saved ✓</p>}
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-5">
+        <h2 className="font-semibold mb-1">Factoring app</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          When a hauler completes a ticket as <strong>Factor Payment</strong> and the office
+          approves it, the ticket is sent here as approved and ready to fund. Paste the
+          endpoint the factoring app gave you; leave it blank and factor tickets simply
+          wait until it&apos;s connected.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+          <label className="text-xs text-gray-600 sm:col-span-2">Endpoint URL
+            <input value={factorUrl} onChange={(e) => setFactorUrl(e.target.value)}
+              placeholder="https://…" className={`${input} w-full block mt-1`} />
+          </label>
+          <label className="text-xs text-gray-600 sm:col-span-2">API key (if they gave you one)
+            <input value={factorKey} onChange={(e) => setFactorKey(e.target.value)}
+              type="password" autoComplete="off" className={`${input} w-full block mt-1`} />
+          </label>
+        </div>
+        <button onClick={saveFactoring} className="mt-3 px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium">
+          Save
+        </button>
+        {savedFactor && <p className="text-xs text-emerald-700 mt-1">Saved ✓</p>}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">

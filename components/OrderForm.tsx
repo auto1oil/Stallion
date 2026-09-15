@@ -39,6 +39,7 @@ function toDraft(o: JobOrder | null): Draft {
     rate: v(o?.rate),
     pay_rate: v(o?.pay_rate),
     rate_unit: v(o?.rate_unit) || 'hour',
+    fuel_surcharge: v(o?.fuel_surcharge),
     fsr: v(o?.fsr),
     tonnage: v(o?.tonnage),
     tonnage_type: v(o?.tonnage_type),
@@ -89,6 +90,7 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
       rate: num(draft.rate),
       pay_rate: num(draft.pay_rate),
       rate_unit: draft.rate_unit || null,
+      fuel_surcharge: num(draft.fuel_surcharge),
       fsr: txt(draft.fsr),
       tonnage: num(draft.tonnage),
       tonnage_type: draft.tonnage_type || null,
@@ -138,9 +140,6 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
           </label>
           <label><span className={label}>Phase code</span>
             <input value={draft.phase_code} onChange={(e) => set('phase_code', e.target.value)} className={input} />
-          </label>
-          <label><span className={label}>FSR</span>
-            <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} className={input} />
           </label>
           <label className="col-span-2 sm:col-span-3"><span className={label}>Job address</span>
             <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} className={input} />
@@ -210,6 +209,17 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
             <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} className={input}>
               {RATE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
+          </label>
+          {/* FSR sits with the money — it's who signs off on these numbers. */}
+          <label><span className={label}>FSR</span>
+            <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} className={input} />
+          </label>
+          <label><span className={label}>Fuel surcharge ($)</span>
+            <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.fuel_surcharge}
+              onChange={(e) => set('fuel_surcharge', e.target.value)} className={input} />
+            <span className="block mt-1 text-[11px] text-gray-500">
+              Shown at audit time so the checker has it in front of them.
+            </span>
           </label>
           <label><span className={label}>Travel hours</span>
             <input type="number" step="0.25" min="0" inputMode="decimal" value={draft.travel_hours}

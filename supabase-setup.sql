@@ -1979,6 +1979,18 @@ alter table public.work_orders add column if not exists equipment_type text;
 -- hourly job from billing its tonnage just because the tons were written down.
 alter table public.work_orders add column if not exists rate_unit      text
   check (rate_unit is null or rate_unit in ('hour','ton','load','day'));
+-- How the hauler wants this ticket paid. 'factor' means: once the office
+-- approves, the ticket is handed to the factoring service to fund; 'standard'
+-- (or null) stays on Stallion's normal pay run.
+alter table public.work_orders add column if not exists payment_method text
+  check (payment_method is null or payment_method in ('standard','factor'));
+-- When the factoring hand-off landed, or why it didn't. Sent-at empty with an
+-- error filled in is the retry queue.
+alter table public.work_orders add column if not exists factor_sent_at timestamptz;
+alter table public.work_orders add column if not exists factor_error   text;
+-- The generated haul-ticket PDF (work-tickets bucket) that rides along on the
+-- QuickBooks invoice and the factoring hand-off.
+alter table public.work_orders add column if not exists ticket_pdf_path text;
 
 create index if not exists work_orders_status_idx     on public.work_orders(status, job_date desc);
 create index if not exists work_orders_submitter_idx  on public.work_orders(submitted_by, created_at desc);
@@ -2651,6 +2663,10 @@ create policy "job_orders read" on public.job_orders
 -- ==========================================================================
 
 alter table public.job_orders add column if not exists pay_rate numeric(12,2);
+
+-- A flat fuel-surcharge figure on the order, put in front of whoever audits a
+-- ticket so they check it against the invoice without digging.
+alter table public.job_orders add column if not exists fuel_surcharge numeric(12,2);
 
 -- Haulers no longer read the order book: it carries the customer's rate. The
 -- load they were dispatched already carries everything they need to do the

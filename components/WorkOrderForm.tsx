@@ -78,6 +78,7 @@ function toDraft(wo: Partial<WorkOrder> | null): Draft {
     rate_unit: v(wo?.rate_unit),
     tonnage: v(wo?.tonnage),
     tonnage_type: v(wo?.tonnage_type),
+    payment_method: v(wo?.payment_method),
     notes: v(wo?.notes),
   };
 }
@@ -135,6 +136,10 @@ export default function WorkOrderForm({
   // An invoiced ticket is closed to everyone — the money is booked in
   // QuickBooks, so a change here would silently disagree with the invoice.
   const locked = status === 'invoiced' || (!editable && !canApprove);
+  // A hauler's ticket off a dispatched job keeps the job's facts read-only:
+  // the job, address, phase, and their pay rate came with the load. The
+  // server strips these from a hauler's save too — this is the visible half.
+  const orderLocked = locked || (isHauler && !!draft.order_id);
 
   const set = (k: string, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -243,6 +248,9 @@ export default function WorkOrderForm({
       short_ticket_path: shortTicket,
       signature_path: signature,
       foreman_signature_path: foremanSignature,
+      // A hauler completing without picking is standard pay — the default,
+      // not a gap the office has to chase.
+      payment_method: draft.payment_method || (isHauler ? 'standard' : null),
       notes: draft.notes.trim() || null,
     };
   }
@@ -323,8 +331,10 @@ export default function WorkOrderForm({
             <div className="col-span-2 sm:col-span-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
               {draft.order_id ? (
                 <span className="text-gray-700">
-                  This ticket is against the job Stallion sent you. The details below came
-                  with it — correct anything that ran differently on the day.
+                  This ticket is against the job Stallion sent you. The job details and
+                  rate came with it and are locked — your times, loads, truck, and
+                  signatures are what you fill in. Anything off about the job itself
+                  goes to dispatch.
                 </span>
               ) : (
                 <span className="text-gray-700">
@@ -367,25 +377,25 @@ export default function WorkOrderForm({
             <input value={draft.trucking_company} onChange={(e) => set('trucking_company', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Customer #</span>
-            <input value={draft.customer_number} onChange={(e) => set('customer_number', e.target.value)} disabled={locked} className={input} />
+            <input value={draft.customer_number} onChange={(e) => set('customer_number', e.target.value)} disabled={orderLocked} className={input} />
           </label>
           <label><span className={label}>Job #</span>
-            <input value={draft.job_number} onChange={(e) => set('job_number', e.target.value)} disabled={locked} className={input} />
+            <input value={draft.job_number} onChange={(e) => set('job_number', e.target.value)} disabled={orderLocked} className={input} />
           </label>
           <label className="col-span-2"><span className={label}>Job name</span>
-            <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={locked} className={input} />
+            <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={orderLocked} className={input} />
           </label>
           <label className="col-span-2 sm:col-span-3"><span className={label}>Job address</span>
-            <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} disabled={locked} className={input} />
+            <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} disabled={orderLocked} className={input} />
           </label>
           <label><span className={label}>Day #</span>
             <input value={draft.day_number} onChange={(e) => set('day_number', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Phase code</span>
-            <input value={draft.phase_code} onChange={(e) => set('phase_code', e.target.value)} disabled={locked} className={input} />
+            <input value={draft.phase_code} onChange={(e) => set('phase_code', e.target.value)} disabled={orderLocked} className={input} />
           </label>
           <label><span className={label}>Claim #</span>
-            <input value={draft.claim_number} onChange={(e) => set('claim_number', e.target.value)} disabled={locked} className={input} />
+            <input value={draft.claim_number} onChange={(e) => set('claim_number', e.target.value)} disabled={orderLocked} className={input} />
           </label>
           <label><span className={label}>Unit # (truck)</span>
             <input value={draft.unit_number} onChange={(e) => set('unit_number', e.target.value)} disabled={locked} className={input} />
@@ -395,9 +405,6 @@ export default function WorkOrderForm({
             <datalist id="equipment-types">
               {EQUIPMENT_TYPES.map((t) => <option key={t} value={t} />)}
             </datalist>
-          </label>
-          <label><span className={label}>FSR</span>
-            <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} disabled={locked} className={input} />
           </label>
           <label><span className={label}>Date</span>
             <input type="date" value={draft.job_date} onChange={(e) => set('job_date', e.target.value)} disabled={locked} className={input} />
@@ -466,8 +473,8 @@ export default function WorkOrderForm({
             </select>
           </label>
           <label><span className={label}>Rate ($)</span>
-            <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate} onChange={(e) => set('rate', e.target.value)} disabled={locked} className={input} />
-            {suggestedRate && Number(draft.rate) !== Number(suggestedRate.rate) && (
+            <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate} onChange={(e) => set('rate', e.target.value)} disabled={orderLocked} className={input} />
+            {!orderLocked && suggestedRate && Number(draft.rate) !== Number(suggestedRate.rate) && (
               <button
                 type="button"
                 onClick={() => {
@@ -487,13 +494,17 @@ export default function WorkOrderForm({
               It comes off the order; the blank option keeps old hand-filled
               tickets on the original guess (tons if entered, else hours). */}
           <label><span className={label}>Per</span>
-            <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} disabled={locked} className={input}>
+            <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} disabled={orderLocked} className={input}>
               <option value="">Auto (tons if entered, else hours)</option>
               <option value="hour">Hour</option>
               <option value="ton">Ton</option>
               <option value="load">Load</option>
               <option value="day">Day</option>
             </select>
+          </label>
+          {/* The FSR rides with the money fields — it's who signs off on them. */}
+          <label className="col-span-2"><span className={label}>FSR</span>
+            <input value={draft.fsr} onChange={(e) => set('fsr', e.target.value)} disabled={orderLocked} className={input} />
           </label>
         </div>
 
@@ -583,6 +594,37 @@ export default function WorkOrderForm({
           <textarea rows={3} value={draft.notes} onChange={(e) => set('notes', e.target.value)} disabled={locked} className={input} />
         </label>
       </div>
+
+      {/* How the hauler wants paying. Factor hands the approved ticket to the
+          factoring service to fund; standard waits on Stallion's pay run. */}
+      {isHauler && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-1">
+            How do you want this ticket paid?
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Factor Payment sends the approved ticket straight to the factoring
+            service to fund. Standard Pay stays on the normal pay run.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {([['standard', 'Standard Pay'], ['factor', 'Factor Payment']] as const).map(([value, title]) => (
+              <button
+                key={value}
+                type="button"
+                disabled={locked}
+                onClick={() => set('payment_method', value)}
+                className={`px-3 py-2.5 rounded-md border text-sm font-medium disabled:opacity-50 ${
+                  (draft.payment_method || 'standard') === value
+                    ? 'border-brand-700 bg-brand-700 text-white'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {title}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {msg && <p className="text-sm text-emerald-700">{msg}</p>}

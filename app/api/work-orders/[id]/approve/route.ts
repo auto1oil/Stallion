@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { invoiceWorkOrder, type WorkOrder } from '@/lib/work-orders';
+import { sendTicketToFactoring } from '@/lib/factoring';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -146,6 +147,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     else invoiceError = String(result.body.error || 'QuickBooks invoice failed');
   }
 
+  // ---- A factor-marked ticket goes to the factoring app on approval. ----
+  // Best-effort, like the invoice: a hand-off failure never rolls back the
+  // approval. The outcome lands on the row (factor_sent_at / factor_error).
+  let factorError: string | null = null;
+  if (as === 'office' && (updated as WorkOrder).payment_method === 'factor') {
+    const sent = await sendTicketToFactoring(db, wo.id);
+    if (!sent.ok) factorError = sent.error || 'factoring hand-off failed';
+  }
+
   await notify(
     db, wo,
     'work_order_approved',
@@ -154,7 +164,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   );
 
   const { data: fresh } = await db.from('work_orders').select('*').eq('id', wo.id).maybeSingle();
-  return NextResponse.json({ ok: true, work_order: fresh || updated, invoice, invoice_error: invoiceError });
+  return NextResponse.json({
+    ok: true, work_order: fresh || updated,
+    invoice, invoice_error: invoiceError, factor_error: factorError,
+  });
 }
 
 // Tell whoever filled the ticket out what happened to it. Best-effort.

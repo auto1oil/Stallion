@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
+import FilterBar, { EMPTY_FILTER, filterActive, type ListFilter } from '@/components/FilterBar';
 import {
   ORDER_STATUS_LABEL, ORDER_STATUS_TONE, orderSpan,
   type JobOrder, type OrderStatus,
@@ -10,7 +11,13 @@ import {
 // The order book. An order is a specific job — one day or three months — and
 // every ticket and every hauler dispatch points at one.
 
-type Row = JobOrder & { tickets: number; flagged: number; customer: string | null };
+type Row = JobOrder & {
+  tickets: number; flagged: number; customer: string | null;
+  // Who worked it — resolved off the order's dispatches and tickets, which is
+  // what the hauler/driver filters match against.
+  haulerIds: string[];
+  driverNames: string[];
+};
 
 const FILTERS: { key: OrderStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -27,17 +34,24 @@ export default function OrdersPage() {
   // Open is the default: it is the work that still needs someone. Finished
   // and cancelled orders are lookups, not a to-do list.
   const [filter, setFilter] = useState<OrderStatus | 'all'>('open');
+  const [bar, setBar] = useState<ListFilter>(EMPTY_FILTER);
+  const [haulers, setHaulers] = useState<{ id: string; name: string }[]>([]);
 
   const refresh = useCallback(async () => {
-    const [{ data: orders }, { data: tickets }, { data: biz }] = await Promise.all([
+    const [{ data: orders }, { data: tickets }, { data: biz }, { data: dispatches }, { data: haulerRows }] = await Promise.all([
       supabase.from('job_orders').select('*').order('order_number', { ascending: false }),
-      supabase.from('work_orders').select('order_id, order_mismatch, mismatch_cleared_at'),
+      supabase.from('work_orders').select('order_id, order_mismatch, mismatch_cleared_at, hauler_id, driver_name'),
       supabase.from('businesses').select('id, name'),
+      supabase.from('hauler_loads').select('order_id, hauler_id'),
+      supabase.from('haulers').select('id, name').order('name'),
     ]);
 
+    setHaulers((haulerRows as { id: string; name: string }[]) || []);
     const names = new Map(((biz as { id: string; name: string }[]) || []).map((b) => [b.id, b.name]));
     const counts = new Map<string, { tickets: number; flagged: number }>();
-    for (const t of ((tickets as { order_id: string | null; order_mismatch: string | null; mismatch_cleared_at: string | null }[]) || [])) {
+    const haulersByOrder = new Map<string, Set<string>>();
+    const driversByOrder = new Map<string, Set<string>>();
+    for (const t of ((tickets as { order_id: string | null; order_mismatch: string | null; mismatch_cleared_at: string | null; hauler_id: string | null; driver_name: string | null }[]) || [])) {
       if (!t.order_id) continue;
       const c = counts.get(t.order_id) || { tickets: 0, flagged: 0 };
       c.tickets += 1;
@@ -45,6 +59,13 @@ export default function OrdersPage() {
       // counting as something needing attention.
       if (t.order_mismatch && !t.mismatch_cleared_at) c.flagged += 1;
       counts.set(t.order_id, c);
+      if (t.hauler_id) (haulersByOrder.get(t.order_id) || haulersByOrder.set(t.order_id, new Set()).get(t.order_id)!).add(t.hauler_id);
+      if (t.driver_name) (driversByOrder.get(t.order_id) || driversByOrder.set(t.order_id, new Set()).get(t.order_id)!).add(t.driver_name.toLowerCase());
+    }
+    // Dispatched-but-not-yet-ticketed loads still tie the hauler to the order.
+    for (const d of ((dispatches as { order_id: string | null; hauler_id: string }[]) || [])) {
+      if (!d.order_id) continue;
+      (haulersByOrder.get(d.order_id) || haulersByOrder.set(d.order_id, new Set()).get(d.order_id)!).add(d.hauler_id);
     }
 
     setRows(((orders as JobOrder[]) || []).map((o) => ({
@@ -52,13 +73,36 @@ export default function OrdersPage() {
       tickets: counts.get(o.id)?.tickets || 0,
       flagged: counts.get(o.id)?.flagged || 0,
       customer: o.business_id ? (names.get(o.business_id) || null) : null,
+      haulerIds: [...(haulersByOrder.get(o.id) || [])],
+      driverNames: [...(driversByOrder.get(o.id) || [])],
     })));
     setLoading(false);
   }, [supabase]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const visible = filter === 'all' ? rows : rows.filter((r) => r.status === filter);
+  // What "matches" means for an order: the job by number or name; the hauler
+  // by who its loads/tickets went to; the driver by the names on its tickets;
+  // billing by the order's own rate unit; dates by overlap with its run.
+  function matchesOrder(f: ListFilter, o: Row): boolean {
+    const norm = (s: string | null | undefined) => (s || '').trim().toLowerCase();
+    if (f.job) {
+      const q = norm(f.job);
+      if (!norm(o.job_number).includes(q) && !norm(o.job_name).includes(q)) return false;
+    }
+    if (f.haulerId === 'own') { if (o.haulerIds.length > 0) return false; }
+    else if (f.haulerId) { if (!o.haulerIds.includes(f.haulerId)) return false; }
+    if (f.driver && !o.driverNames.some((d) => d.includes(norm(f.driver)))) return false;
+    if (f.billing && (o.rate_unit || 'hour') !== f.billing) return false;
+    // Date range: the order's run has to touch the window.
+    if (f.from && o.end_date && o.end_date < f.from) return false;
+    if (f.to && o.start_date && o.start_date > f.to) return false;
+    if ((f.from || f.to) && !o.start_date && !o.end_date) return false;
+    return true;
+  }
+
+  const byStatus = filter === 'all' ? rows : rows.filter((r) => r.status === filter);
+  const visible = filterActive(bar) ? byStatus.filter((r) => matchesOrder(bar, r)) : byStatus;
   const totalFlagged = rows.reduce((n, r) => n + r.flagged, 0);
 
   return (
@@ -79,6 +123,11 @@ export default function OrdersPage() {
           match their order. Open the order to see what&apos;s off.
         </div>
       )}
+
+      <FilterBar
+        value={bar} onChange={setBar} haulers={haulers}
+        matched={visible.length} total={byStatus.length}
+      />
 
       <div className="flex gap-2 mb-4 flex-wrap">
         {FILTERS.map((f) => {

@@ -8,7 +8,8 @@
 // Tonnage on an hourly ticket is information, not a bill.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createInvoice, fetchInvoicePdf } from '@/lib/quickbooks';
+import { createInvoice, fetchInvoicePdf, attachFileToInvoice } from '@/lib/quickbooks';
+import { ensureTicketPdf } from '@/lib/ticket-pdf';
 
 export const WORK_ORDER_STATUSES = [
   'draft',
@@ -113,6 +114,14 @@ export type WorkOrder = {
   qb_invoice_id: string | null;
   qb_invoice_number: string | null;
   qb_synced_at: string | null;
+  // 'factor' hands the approved ticket to the factoring service to fund;
+  // 'standard' (or null) stays on the normal pay run. The hauler picks when
+  // completing the ticket.
+  payment_method: 'standard' | 'factor' | null;
+  factor_sent_at: string | null;
+  factor_error: string | null;
+  // The generated haul-ticket PDF in the work-tickets bucket.
+  ticket_pdf_path: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -181,7 +190,17 @@ export const EDITABLE_FIELDS = [
   'signed_out_state', 'sign_out_at', 'foreman_signature_path',
   'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate', 'rate_unit',
   'tonnage', 'tonnage_type', 'ticket_photo_path', 'short_ticket_path',
-  'signature_path', 'contractor_id', 'notes',
+  'signature_path', 'contractor_id', 'payment_method', 'notes',
+] as const;
+
+// On a hauler's ticket that came from a dispatched job, these are the ORDER's
+// facts, not the driver's: the job, where it is, what phase it bills under,
+// and what the hauler is paid. The driver's half of the ticket is the times,
+// the loads, the truck, and the signatures. Locked in the form and stripped
+// server-side, because a form is not a boundary.
+export const ORDER_LOCKED_FIELDS = [
+  'customer_number', 'job_number', 'job_name', 'job_address', 'phase_code',
+  'claim_number', 'fsr', 'rate', 'rate_unit',
 ] as const;
 
 const NUMERIC_FIELDS = new Set([
@@ -419,6 +438,21 @@ export async function invoiceWorkOrder(db: SupabaseClient, workOrderId: string):
       body: { ok: false, error: err instanceof Error ? err.message : 'QuickBooks invoice failed' },
     };
   }
+
+  // The haul ticket itself rides on the invoice: a generated PDF of the whole
+  // ticket — job, times, load lines, signatures — attached in QuickBooks so
+  // the customer's copy carries its own proof. Best-effort, like everything
+  // after the invoice exists.
+  const docNumberForFiles = invoice.DocNumber || invoice.Id;
+  try {
+    const ticketPdf = await ensureTicketPdf(db, order.id);
+    if (ticketPdf) {
+      await attachFileToInvoice(
+        invoice.Id, ticketPdf.bytes,
+        `haul-ticket-${docNumberForFiles}.pdf`, 'application/pdf', db,
+      );
+    }
+  } catch { /* the invoice stands; the attachment can be redone by re-approving */ }
 
   // The office invoices as soon as it approves, which is usually BEFORE the
   // funder has released funds — so raising the invoice doesn't by itself

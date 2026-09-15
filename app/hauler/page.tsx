@@ -28,6 +28,8 @@ export default function HaulerLoadsPage() {
   const [reason, setReason] = useState('');
   const [unitFor, setUnitFor] = useState<Record<string, string>>({});
   const [driverFor, setDriverFor] = useState<Record<string, string>>({});
+  // Accept-all: one driver for the whole batch unless a load has its own pick.
+  const [bulkDriver, setBulkDriver] = useState('');
   // The company's own people, plus whoever is signed in — a one-truck outfit
   // takes its own loads, so the owner has to be able to pick themselves.
   const [crew, setCrew] = useState<{ id: string; full_name: string | null; email: string; active: boolean }[]>([]);
@@ -83,6 +85,39 @@ export default function HaulerLoadsPage() {
     } finally {
       setBusy('');
     }
+  }
+
+  // Take everything on the table in one go. Each load still goes through the
+  // same accept route — the per-load unit/driver picks win over the batch
+  // driver, so "all to me except load 3 to Danny" works by setting load 3
+  // first. No redirect at the end: with several tickets started there is no
+  // single one to land on.
+  async function acceptAll() {
+    setBusy('all'); setError(''); setMsg('');
+    let ok = 0;
+    const failures: string[] = [];
+    for (const l of offered) {
+      try {
+        const res = await fetch(`/api/haulers/loads/${l.id}/respond`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            answer: 'accept',
+            equipment_id: unitFor[l.id] || null,
+            driver_id: driverFor[l.id] || bulkDriver || meId,
+          }),
+        });
+        const json = await res.json();
+        if (json.ok) ok++;
+        else failures.push(json.error || 'unknown error');
+      } catch {
+        failures.push('network error');
+      }
+    }
+    if (ok > 0) setMsg(`Accepted ${ok} load${ok === 1 ? '' : 's'} — the office has been told. Your haul tickets are under Haul Tickets.`);
+    if (failures.length > 0) setError(`${failures.length} could not be accepted: ${failures[0]}`);
+    setBusy('');
+    refresh();
   }
 
   // Accepting starts the ticket automatically, but that step is best-effort —
@@ -179,6 +214,32 @@ export default function HaulerLoadsPage() {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">
                 Waiting on you
               </h2>
+              {offered.length > 1 && (
+                <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 mb-2 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">Take all {offered.length}:</span>
+                  <select
+                    value={bulkDriver || meId || ''}
+                    onChange={(e) => setBulkDriver(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded-md text-xs"
+                  >
+                    {assignable.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.id === meId ? 'Me' : (c.full_name || c.email)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={acceptAll}
+                    disabled={busy !== ''}
+                    className="px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+                  >
+                    {busy === 'all' ? 'Accepting…' : `Accept all ${offered.length}`}
+                  </button>
+                  <span className="text-[11px] text-gray-500 basis-full">
+                    A load with its own driver picked below keeps that pick.
+                  </span>
+                </div>
+              )}
               <div className="space-y-2">
                 {offered.map((l) => (
                   <div key={l.id} className="bg-white border-2 border-accent-400 rounded-lg px-4 py-3">

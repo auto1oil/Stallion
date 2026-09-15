@@ -61,6 +61,24 @@ export default function TicketAttachment({
 
   const isImage = !!path && !/\.pdf$/i.test(path);
 
+  // Opening mints a FRESH signed URL. The preview URL above was minted when
+  // the page loaded and expires; a crew member who fills the ticket for half
+  // an hour and then taps Open would land on a storage error page. The tab is
+  // opened synchronously and pointed at the URL after — Safari blocks a
+  // window.open that comes after an await.
+  async function openFresh() {
+    if (!path) return;
+    const tab = window.open('about:blank', '_blank');
+    const { data, error: err } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
+    if (err || !data?.signedUrl) {
+      tab?.close();
+      setError('Could not open that file — try again, or re-attach it.');
+      return;
+    }
+    if (tab) tab.location.href = data.signedUrl;
+    else window.location.href = data.signedUrl;
+  }
+
   return (
     <div className="border border-gray-200 rounded-lg p-3 bg-white">
       <div className="flex items-baseline justify-between gap-2">
@@ -77,16 +95,16 @@ export default function TicketAttachment({
       </div>
       {hint && <p className="text-[11px] text-gray-500 mt-0.5">{hint}</p>}
 
-      {url ? (
+      {path && (url || !isImage) ? (
         isImage ? (
-          <a href={url} target="_blank" rel="noreferrer" className="block mt-2">
+          <button type="button" onClick={openFresh} className="block mt-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt={label} className="max-h-56 w-auto rounded border border-gray-200" />
-          </a>
+            <img src={url!} alt={label} className="max-h-56 w-auto rounded border border-gray-200" />
+          </button>
         ) : (
-          <a href={url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm text-brand-700 hover:underline">
-            Open {label.toLowerCase()}
-          </a>
+          <button type="button" onClick={openFresh} className="mt-2 inline-block text-sm text-brand-700 hover:underline">
+            Open {label.toLowerCase()} (PDF)
+          </button>
         )
       ) : (
         <p className="text-xs text-gray-400 mt-2">{readOnly ? 'Not attached.' : 'Nothing attached yet.'}</p>
@@ -104,9 +122,9 @@ export default function TicketAttachment({
             className="block w-full text-xs text-gray-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-brand-700 file:text-white file:text-xs file:font-medium hover:file:bg-brand-900"
           />
           {busy && <p className="text-xs text-gray-500 mt-1">Uploading…</p>}
-          {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
         </div>
       )}
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
     </div>
   );
 }

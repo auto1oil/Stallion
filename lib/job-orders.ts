@@ -51,6 +51,8 @@ export type JobOrder = {
   // What a hauler is paid on this job by default. Also office only.
   pay_rate: number | null;
   rate_unit: string | null;
+  // A flat dollar figure the audit screen puts in front of the checker.
+  fuel_surcharge: number | null;
   fsr: string | null;
   tonnage: number | null;
   tonnage_type: string | null;
@@ -68,12 +70,12 @@ export type JobOrder = {
 export const ORDER_EDITABLE_FIELDS = [
   'business_id', 'customer_number', 'job_name', 'job_number', 'phase_code',
   'job_address', 'start_date', 'end_date', 'start_time', 'stop_time',
-  'travel_hours', 'down_hours', 'rate', 'pay_rate', 'rate_unit', 'fsr', 'tonnage',
-  'tonnage_type', 'equipment_type', 'unit_number', 'status', 'notes',
+  'travel_hours', 'down_hours', 'rate', 'pay_rate', 'rate_unit', 'fuel_surcharge',
+  'fsr', 'tonnage', 'tonnage_type', 'equipment_type', 'unit_number', 'status', 'notes',
 ] as const;
 
 const ORDER_NUMERIC_FIELDS = new Set([
-  'travel_hours', 'down_hours', 'rate', 'pay_rate', 'tonnage',
+  'travel_hours', 'down_hours', 'rate', 'pay_rate', 'fuel_surcharge', 'tonnage',
 ]);
 
 export function pickOrderEditable(body: Record<string, unknown>): Record<string, unknown> {

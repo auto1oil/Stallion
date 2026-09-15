@@ -59,6 +59,52 @@ export async function POST(req: Request) {
   }
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  // Bulk dispatch: a list of order ids sends the hauler one load per order,
+  // each carrying that order's own terms. The rate on a hauler's load is the
+  // PAY rate — the customer rate never leaves the order book.
+  const orderIds = Array.isArray(body.order_ids)
+    ? (body.order_ids as unknown[]).map(String).filter(Boolean)
+    : [];
+  if (orderIds.length > 0) {
+    const haulerId = String(body.hauler_id || '');
+    if (!haulerId) return NextResponse.json({ ok: false, error: 'pick a hauler' }, { status: 400 });
+    const { data: orders, error: ordErr } = await supabase
+      .from('job_orders').select('*').in('id', orderIds);
+    if (ordErr) return NextResponse.json({ ok: false, error: ordErr.message }, { status: 400 });
+    if (!orders || orders.length === 0) {
+      return NextResponse.json({ ok: false, error: 'those orders no longer exist' }, { status: 400 });
+    }
+    const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim() : null;
+    const rows = orders.map((o) => ({
+      hauler_id: haulerId,
+      order_id: o.id,
+      job_number: o.job_number,
+      job_name: o.job_name,
+      phase_code: o.phase_code,
+      equipment_type: o.equipment_type,
+      job_date: o.start_date,
+      start_time: o.start_time,
+      dropoff: o.job_address,
+      rate: o.pay_rate,
+      rate_unit: o.rate_unit,
+      notes,
+      status: 'offered',
+      assigned_by: user.id,
+    }));
+    const { data: created, error: insErr } = await supabase
+      .from('hauler_loads').insert(rows).select('*');
+    if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 400 });
+
+    // One notification for the batch — five pings for five loads is noise.
+    const by = (actor.full_name || actor.email || 'Dispatch') as string;
+    const batch = (created as HaulerLoad[]) || [];
+    if (batch.length === 1) await notifyHauler(batch[0], by);
+    else await notifyHaulerBatch(haulerId, batch.length, by);
+
+    return NextResponse.json({ ok: true, loads: batch, count: batch.length });
+  }
+
   const patch = pickLoadEditable(body);
   if (!patch.hauler_id) {
     return NextResponse.json({ ok: false, error: 'pick a hauler' }, { status: 400 });
@@ -78,6 +124,31 @@ export async function POST(req: Request) {
   await notifyHauler(load as HaulerLoad, by);
 
   return NextResponse.json({ ok: true, load });
+}
+
+// Batch version: one message for the whole send.
+async function notifyHaulerBatch(haulerId: string, count: number, by: string) {
+  try {
+    const db = createAdminClient();
+    const { data: people } = await db
+      .from('profiles').select('id').eq('hauler_id', haulerId);
+    const ids = ((people as { id: string }[]) || []).map((p) => p.id);
+    if (ids.length === 0) return;
+    const title = `${count} loads offered`;
+    const bodyText = `Offered by ${by}. Accept the ones you can take from your loads.`;
+    await db.from('notifications').insert(
+      ids.map((id) => ({
+        recipient_id: id,
+        kind: 'hauler_load_offered',
+        title,
+        body: bodyText,
+        link: '/hauler',
+      })),
+    );
+    await sendPushToUsers(ids, { title, body: bodyText, url: '/hauler' });
+  } catch {
+    /* ignore — the loads are placed either way */
+  }
 }
 
 // Tell everyone who signs in for that hauler company that a load is waiting.

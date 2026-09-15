@@ -26,6 +26,8 @@ export default function WorkOrderList({
   emptyText = 'Nothing here yet.',
   showTruckCount = false,
   refreshKey = 0,
+  filterFn,
+  onCounts,
 }: {
   query: string;
   hrefBase: string;
@@ -33,6 +35,10 @@ export default function WorkOrderList({
   emptyText?: string;
   showTruckCount?: boolean;
   refreshKey?: number;
+  // Client-side narrowing on top of what the API returned (the FilterBar).
+  filterFn?: (wo: WorkOrder) => boolean;
+  // Tells the page "12 of 40" so an emptied list reads as filtered, not gone.
+  onCounts?: (matched: number, total: number) => void;
 }) {
   const [rows, setRows] = useState<WorkOrder[] | null>(null);
   const [error, setError] = useState('');
@@ -80,13 +86,24 @@ export default function WorkOrderList({
     else setReload((n) => n + 1);
   }
 
+  const visible = useMemo(
+    () => (filterFn ? (rows || []).filter(filterFn) : (rows || [])),
+    [rows, filterFn],
+  );
+  useEffect(() => {
+    if (rows !== null) onCounts?.(visible.length, rows.length);
+  }, [visible.length, rows, onCounts]);
+
   if (rows === null) return <p className="text-sm text-gray-500">Loading…</p>;
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (rows.length === 0) return <p className="text-sm text-gray-500">{emptyText}</p>;
+  if (visible.length === 0) {
+    return <p className="text-sm text-gray-500">Nothing matches those filters.</p>;
+  }
 
   return (
     <div className="space-y-2">
-      {rows.map((wo) => {
+      {visible.map((wo) => {
         const trucks = wo.job_number ? (trucksByJob.get(wo.job_number)?.size ?? 0) : 0;
         return (
           <div key={wo.id} className="bg-white border border-gray-200 rounded-lg px-4 py-3">

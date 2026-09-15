@@ -1,11 +1,17 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import {
   totalHours, ticketAmount, onSiteHours, billableUnit, billableQuantity,
   type WorkOrder,
 } from '@/lib/work-orders';
+import type { JobOrder } from '@/lib/job-orders';
+
+// What the verify panel reads off the ticket's order.
+type OrderFacts = Pick<JobOrder,
+  'id' | 'business_id' | 'job_number' | 'phase_code'
+  | 'rate' | 'pay_rate' | 'rate_unit' | 'fuel_surcharge'>;
 
 // The audit queue.
 //
@@ -75,6 +81,12 @@ export default function AuditQueue() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
+  // The expanded ticket: its order's terms on the left, the ticket on the
+  // right, approve without leaving the queue.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [orderFacts, setOrderFacts] = useState<Record<string, OrderFacts>>({});
+  const [bizNames, setBizNames] = useState<Record<string, string>>({});
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [{ data: tickets }, { data: setting }] = await Promise.all([
@@ -82,13 +94,48 @@ export default function AuditQueue() {
         .order('job_date', { ascending: true, nullsFirst: false }),
       supabase.from('app_settings').select('value').eq('key', 'audit_fields').maybeSingle(),
     ]);
-    setRows((tickets as WorkOrder[]) || []);
+    const list = (tickets as WorkOrder[]) || [];
+    setRows(list);
     const saved = (setting as { value: string } | null)?.value;
     if (saved) setKeys(saved.split(',').map((k) => k.trim()).filter(Boolean));
+
+    // The orders behind the queue, for the verify panel: both rates, the
+    // fuel surcharge, and who the customer is.
+    const orderIds = [...new Set(list.map((w) => w.order_id).filter(Boolean))] as string[];
+    if (orderIds.length > 0) {
+      const { data: ords } = await supabase
+        .from('job_orders')
+        .select('id, business_id, job_number, phase_code, rate, pay_rate, rate_unit, fuel_surcharge')
+        .in('id', orderIds);
+      const byId: Record<string, OrderFacts> = {};
+      for (const o of (ords as OrderFacts[]) || []) byId[o.id] = o;
+      setOrderFacts(byId);
+      const bizIds = [...new Set(((ords as OrderFacts[]) || []).map((o) => o.business_id).filter(Boolean))] as string[];
+      if (bizIds.length > 0) {
+        const { data: biz } = await supabase.from('businesses').select('id, name').in('id', bizIds);
+        const names: Record<string, string> = {};
+        for (const b of (biz as { id: string; name: string }[]) || []) names[b.id] = b.name;
+        setBizNames(names);
+      }
+    }
     setLoading(false);
   }, [supabase]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // A fresh photo link each time a ticket is expanded — minted on demand so
+  // it can't sit open long enough to expire.
+  useEffect(() => {
+    setPhotoUrl(null);
+    const w = rows.find((r) => r.id === expandedId);
+    if (!w?.ticket_photo_path) return;
+    let stale = false;
+    supabase.storage.from('work-tickets')
+      .createSignedUrl(w.ticket_photo_path, 600)
+      .then(({ data }) => { if (!stale) setPhotoUrl(data?.signedUrl ?? null); });
+    return () => { stale = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
 
   async function saveKeys(next: string[]) {
     setKeys(next);
@@ -129,6 +176,118 @@ export default function AuditQueue() {
   function shortName(id: string) {
     const w = rows.find((r) => r.id === id);
     return w?.job_number ? `Job ${w.job_number}` : (w?.job_date || id.slice(0, 8));
+  }
+
+  // Approve straight from the verify panel — same route, one ticket.
+  async function approveOne(id: string) {
+    setBusy(true); setErrors([]); setProgress('Approving…');
+    try {
+      const res = await fetch(`/api/work-orders/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ as: 'office' }),
+      });
+      const json = await res.json();
+      if (!json.ok) setErrors([`${shortName(id)}: ${json.error || 'failed'}`]);
+      else if (json.invoice_error) setErrors([`${shortName(id)}: approved, but QuickBooks said ${json.invoice_error}`]);
+      else if (json.factor_error) setErrors([`${shortName(id)}: approved, but the factoring hand-off said ${json.factor_error}`]);
+    } catch {
+      setErrors([`${shortName(id)}: network error`]);
+    }
+    setBusy(false); setProgress('');
+    setExpandedId(null);
+    refresh();
+  }
+
+  // The expanded view: the order's terms on the left to verify against, the
+  // haul ticket on the right, and the approve button right there.
+  function verifyPanel(w: WorkOrder) {
+    const o = w.order_id ? orderFacts[w.order_id] : undefined;
+    const per = o?.rate_unit || w.rate_unit || 'hour';
+    const differs = (a: string | null, b: string | null | undefined) =>
+      !!a && !!b && a.trim().toLowerCase() !== String(b).trim().toLowerCase();
+    const facts: [string, string, boolean?][] = [
+      ['Customer', (o?.business_id && bizNames[o.business_id]) || w.customer_number || '—'],
+      ['Date', w.job_date || '—'],
+      ['Hauler', w.trucking_company || (w.hauler_id ? 'hauler' : 'own crew')],
+      ['Unit #', w.unit_number || '—'],
+      ['Job #', w.job_number || '—', differs(w.job_number, o?.job_number)],
+      ['Phase dispatch', w.phase_code || '—', differs(w.phase_code, o?.phase_code)],
+      ['Stallion rate', o?.rate != null ? `$${Number(o.rate).toFixed(2)}/${per}` : '—'],
+      ['Hauler rate', o?.pay_rate != null
+        ? `$${Number(o.pay_rate).toFixed(2)}/${per}`
+        : (w.hauler_id && w.rate != null ? `$${Number(w.rate).toFixed(2)}/${per}` : '—')],
+      ['Fuel surcharge', o?.fuel_surcharge != null ? `$${Number(o.fuel_surcharge).toFixed(2)}` : '—'],
+    ];
+    const reason = needsEyes(w);
+    return (
+      <div className="rounded-md border border-gray-200 bg-gray-50 p-3 mt-2">
+        {reason && <p className="text-xs text-red-700 font-medium mb-2">{reason}</p>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Left: what was agreed, to verify against. */}
+          <dl className="text-sm space-y-1.5">
+            {facts.map(([k, v, off]) => (
+              <div key={k} className="flex justify-between gap-3">
+                <dt className="text-gray-500">{k}</dt>
+                <dd className={`text-right font-medium ${off ? 'text-red-600' : 'text-gray-900'}`}>
+                  {v}{off ? ' ≠ order' : ''}
+                </dd>
+              </div>
+            ))}
+            <div className="pt-2 flex gap-2 flex-wrap">
+              <button
+                onClick={() => approveOne(w.id)}
+                disabled={busy}
+                className="px-4 py-2 text-sm rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {busy ? (progress || 'Approving…') : 'Approve & invoice'}
+              </button>
+              <Link
+                href={`/work-orders/${w.id}`}
+                className="px-4 py-2 text-sm rounded-md border border-gray-300 hover:bg-white"
+              >
+                Open full ticket
+              </Link>
+            </div>
+          </dl>
+
+          {/* Right: the haul ticket as turned in. */}
+          <div className="text-sm">
+            <div className="rounded-md border border-gray-200 bg-white p-3">
+              <p className="font-semibold text-gray-900 mb-1.5">
+                Haul ticket{w.ticket_number ? ` #${w.ticket_number}` : ''}
+                {w.driver_name ? ` — ${w.driver_name}` : ''}
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700">
+                <span>On site <strong className="tabular-nums">{onSiteHours(w.start_at, w.stop_at).toFixed(2)}</strong> h</span>
+                <span>Total <strong className="tabular-nums">{totalHours(w).toFixed(2)}</strong> h</span>
+                <span><strong className="tabular-nums">{w.loads_count ?? 0}</strong> loads</span>
+                <span><strong className="tabular-nums">{Number(w.loads_tons || 0).toFixed(2)}</strong> tons</span>
+                <span className="col-span-2">
+                  Bills <strong className="tabular-nums">{billableQuantity(w).toFixed(2)}</strong> {billableUnit(w)}
+                  {' '}= <strong className="tabular-nums">${ticketAmount(w).toFixed(2)}</strong>
+                </span>
+                <span>{w.foreman_signature_path ? 'Foreman signed ✓' : 'Foreman NOT signed'}</span>
+                <span>{w.signature_path ? 'Driver signed ✓' : 'Driver not signed'}</span>
+                {w.payment_method === 'factor' && (
+                  <span className="col-span-2 font-medium text-brand-700">
+                    Factor Payment — approval sends this to the factoring app.
+                  </span>
+                )}
+              </div>
+              {photoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={photoUrl} alt="Paper ticket" className="mt-2 max-h-64 w-auto rounded border border-gray-200" />
+              ) : w.ticket_photo_path ? (
+                <p className="mt-2 text-xs text-gray-400">Loading the paper-ticket photo…</p>
+              ) : (
+                <p className="mt-2 text-xs text-red-600">No photo of the paper ticket.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const shown = COLUMNS.filter((c) => keys.includes(c.key));
@@ -215,18 +374,28 @@ export default function AuditQueue() {
           <div className="space-y-2">
             {flagged.map((w) => (
               <div key={w.id} className="rounded-lg border border-red-300 bg-red-50 px-4 py-3">
-                <div className="flex justify-between items-start gap-3 flex-wrap">
-                  <Link href={`/work-orders/${w.id}`} className="font-medium text-sm hover:text-brand-700">
-                    {w.job_number ? `Job ${w.job_number}` : 'Ticket'}
-                    {w.job_date ? ` · ${w.job_date}` : ''}
-                    {w.driver_name ? ` · ${w.driver_name}` : ''}
-                  </Link>
-                  <span className="text-sm font-semibold shrink-0">${ticketAmount(w).toFixed(2)}</span>
-                </div>
-                <p className="text-xs text-red-700 font-medium mt-1">{needsEyes(w)}</p>
-                <div className="text-xs text-gray-600 mt-1">
-                  {shown.map((c) => `${c.label} ${c.get(w) || '—'}`).join(' · ')}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedId(expandedId === w.id ? null : w.id)}
+                  className="w-full text-left"
+                >
+                  <div className="flex justify-between items-start gap-3 flex-wrap">
+                    <span className="font-medium text-sm hover:text-brand-700">
+                      {w.job_number ? `Job ${w.job_number}` : 'Ticket'}
+                      {w.job_date ? ` · ${w.job_date}` : ''}
+                      {w.driver_name ? ` · ${w.driver_name}` : ''}
+                      <span className="text-gray-400 font-normal">
+                        {expandedId === w.id ? '  ▾' : '  ▸'}
+                      </span>
+                    </span>
+                    <span className="text-sm font-semibold shrink-0">${ticketAmount(w).toFixed(2)}</span>
+                  </div>
+                  <p className="text-xs text-red-700 font-medium mt-1">{needsEyes(w)}</p>
+                  <div className="text-xs text-gray-600 mt-1">
+                    {shown.map((c) => `${c.label} ${c.get(w) || '—'}`).join(' · ')}
+                  </div>
+                </button>
+                {expandedId === w.id && verifyPanel(w)}
               </div>
             ))}
           </div>
@@ -271,26 +440,36 @@ export default function AuditQueue() {
               </thead>
               <tbody>
                 {clean.map((w) => (
-                  <tr key={w.id} className={`border-t border-gray-100 ${selected.has(w.id) ? 'bg-brand-50' : ''}`}>
-                    <td className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(w.id)}
-                        onChange={() => toggle(w.id)}
-                        aria-label="Select for approval"
-                      />
-                    </td>
-                    {shown.map((c) => (
-                      <td key={c.key} className="px-3 py-2 whitespace-nowrap tabular-nums">
-                        {c.get(w) || '—'}
+                  <Fragment key={w.id}>
+                    <tr
+                      onClick={() => setExpandedId(expandedId === w.id ? null : w.id)}
+                      className={`border-t border-gray-100 cursor-pointer hover:bg-gray-50 ${selected.has(w.id) ? 'bg-brand-50' : ''}`}
+                    >
+                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(w.id)}
+                          onChange={() => toggle(w.id)}
+                          aria-label="Select for approval"
+                        />
                       </td>
-                    ))}
-                    <td className="px-3 py-2 text-right">
-                      <Link href={`/work-orders/${w.id}`} className="text-xs text-brand-700 hover:underline">
-                        Open
-                      </Link>
-                    </td>
-                  </tr>
+                      {shown.map((c) => (
+                        <td key={c.key} className="px-3 py-2 whitespace-nowrap tabular-nums">
+                          {c.get(w) || '—'}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 text-right text-xs text-brand-700">
+                        {expandedId === w.id ? 'Close ▾' : 'Verify ▸'}
+                      </td>
+                    </tr>
+                    {expandedId === w.id && (
+                      <tr className="border-t border-gray-100">
+                        <td colSpan={shown.length + 2} className="px-3 pb-3">
+                          {verifyPanel(w)}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

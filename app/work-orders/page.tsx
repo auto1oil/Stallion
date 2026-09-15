@@ -1,10 +1,15 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import AdminSubNav from '@/components/AdminSubNav';
 import WorkOrderList from '@/components/WorkOrderList';
+import AuditQueue from '@/components/AuditQueue';
+import FilterBar, { EMPTY_FILTER, matchesTicket, type ListFilter } from '@/components/FilterBar';
+import { createClient } from '@/lib/supabase-browser';
+import type { WorkOrder } from '@/lib/work-orders';
 
-// The office's saved sheet: every ticket in the system, filtered by stage.
-// Submitted → Approve tab; the rest are here for lookup and re-invoicing.
+// The office's working tab. Tickets needing approval are dumped straight in
+// at the top — the audit queue — with the full ticket sheet below it for
+// lookup and re-invoicing. The Approve subtab is the same queue on its own.
 
 const FILTERS = [
   { key: '', label: 'All' },
@@ -18,6 +23,19 @@ const FILTERS = [
 
 export default function WorkOrdersPage() {
   const [filter, setFilter] = useState<string>('');
+  const [bar, setBar] = useState<ListFilter>(EMPTY_FILTER);
+  const [haulers, setHaulers] = useState<{ id: string; name: string }[]>([]);
+  const [matched, setMatched] = useState(0);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from('haulers').select('id, name').order('name')
+      .then(({ data }) => setHaulers((data as { id: string; name: string }[]) || []));
+  }, []);
+
+  const filterFn = useMemo(() => (wo: WorkOrder) => matchesTicket(bar, wo), [bar]);
+  const onCounts = useCallback((m: number, t: number) => { setMatched(m); setTotal(t); }, []);
 
   // Retry an invoice that QuickBooks rejected when the ticket was approved.
   const invoiceAction = {
@@ -44,6 +62,18 @@ export default function WorkOrdersPage() {
       />
       <h1 className="text-2xl font-semibold mb-3">Tickets</h1>
 
+      {/* What's waiting on the office, front and center. */}
+      <section className="mb-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">
+          Needing approval
+        </h2>
+        <AuditQueue />
+      </section>
+
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">
+        All tickets
+      </h2>
+      <FilterBar value={bar} onChange={setBar} haulers={haulers} matched={matched} total={total} />
       <div className="flex gap-2 mb-4 flex-wrap">
         {FILTERS.map((f) => (
           <button
@@ -65,6 +95,8 @@ export default function WorkOrdersPage() {
         hrefBase="/work-orders"
         action={invoiceAction}
         emptyText="No tickets in this bucket."
+        filterFn={filterFn}
+        onCounts={onCounts}
       />
     </div>
   );

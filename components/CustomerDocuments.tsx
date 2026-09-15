@@ -139,14 +139,17 @@ export default function CustomerDocuments({
   }
 
   async function handleDownload(doc: Doc) {
+    // Tab first, address after — Safari blocks window.open after an await.
+    const tab = window.open('about:blank', '_blank');
     const { data, error: err } = await supabase.storage
       .from('customer-documents')
-      .createSignedUrl(doc.file_path, 60);
+      .createSignedUrl(doc.file_path, 300);
     if (err || !data) {
+      tab?.close();
       alert(`Could not generate download link: ${err?.message ?? 'unknown error'}`);
       return;
     }
-    window.open(data.signedUrl, '_blank');
+    if (tab) tab.location.href = data.signedUrl; else window.location.href = data.signedUrl;
   }
 
   async function handleDelete(doc: Doc) {

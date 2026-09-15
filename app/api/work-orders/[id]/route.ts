@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { pickEditable } from '@/lib/work-orders';
+import { pickEditable, ORDER_LOCKED_FIELDS } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
 
 export const runtime = 'nodejs';
@@ -57,6 +57,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .select('*')
     .eq('id', params.id)
     .maybeSingle();
+
+  // A hauler's ticket that came off a dispatched job keeps the job's facts:
+  // the form greys these fields out, and this strips them from anyone who
+  // posts them anyway. The office editing the same ticket is not affected.
+  const { data: actor } = await supabase
+    .from('profiles').select('hauler_id').eq('id', user.id).single();
+  if (actor?.hauler_id && before && (before.order_id || before.hauler_load_id)) {
+    for (const k of ORDER_LOCKED_FIELDS) delete patch[k];
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json(
+        { ok: false, error: 'those fields came with the job and cannot be changed' },
+        { status: 400 },
+      );
+    }
+  }
+
   const finalPatch = await withOrderMismatch(supabase, patch, before);
 
   // RLS keeps a crew member to their own draft/submitted rows and lets

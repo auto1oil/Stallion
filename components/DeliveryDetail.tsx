@@ -56,12 +56,15 @@ export default function DeliveryDetail({ orderId, backHref = "/driver" }: { orde
 
   async function downloadInvoice() {
     if (!order?.invoice_pdf_path) return;
+    // Tab first, address after — Safari blocks window.open after an await.
+    const tab = window.open('about:blank', '_blank');
     const { data, error } = await supabase.storage.from('invoices').createSignedUrl(order.invoice_pdf_path, 300);
     if (error || !data?.signedUrl) {
+      tab?.close();
       alert('Could not load invoice. ' + (error?.message || ''));
       return;
     }
-    window.open(data.signedUrl, '_blank');
+    if (tab) tab.location.href = data.signedUrl; else window.location.href = data.signedUrl;
   }
 
   async function markLoaded() {

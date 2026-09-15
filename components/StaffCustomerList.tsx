@@ -69,9 +69,11 @@ export default function StaffCustomerList({ meId, canToggleMine, orderPath }: { 
   // Open an invoice PDF (signed URL — salesmen can read the invoices bucket).
   async function viewInvoice(path: string) {
     const supabase = createClient();
-    const { data, error } = await supabase.storage.from('invoices').createSignedUrl(path, 120);
-    if (error || !data) { setErr(error?.message || 'Could not open invoice'); return; }
-    window.open(data.signedUrl, '_blank');
+    // Tab first, address after — Safari blocks window.open after an await.
+    const tab = window.open('about:blank', '_blank');
+    const { data, error } = await supabase.storage.from('invoices').createSignedUrl(path, 300);
+    if (error || !data) { tab?.close(); setErr(error?.message || 'Could not open invoice'); return; }
+    if (tab) tab.location.href = data.signedUrl; else window.location.href = data.signedUrl;
   }
 
   const load = useCallback(async () => {

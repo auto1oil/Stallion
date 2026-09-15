@@ -28,6 +28,10 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Partial<Hauler>>({});
   const [offering, setOffering] = useState(false);
+  // Bulk send: tick several orders, one load per order goes out in one shot.
+  const [offeringOrders, setOfferingOrders] = useState(false);
+  const [pickedOrders, setPickedOrders] = useState<Set<string>>(new Set());
+  const [batchNotes, setBatchNotes] = useState('');
   const [load, setLoad] = useState({
     job_number: '', job_name: '', phase_code: '', equipment_type: '',
     job_date: today(), start_time: '', pickup: '', dropoff: '',
@@ -107,6 +111,33 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
       setMsg('Load sent — the hauler has been notified.');
       setOffering(false);
       setLoad({ ...load, job_number: '', job_name: '', pickup: '', dropoff: '', notes: '' });
+      refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function sendOrders() {
+    if (pickedOrders.size === 0) { setError('Tick at least one order to send.'); return; }
+    setBusy('orders'); setError(''); setMsg('');
+    try {
+      const res = await fetch('/api/haulers/loads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hauler_id: params.id,
+          order_ids: Array.from(pickedOrders),
+          notes: batchNotes.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) { setError(json.error || 'Could not send the orders.'); return; }
+      setMsg(json.count === 1
+        ? 'Load sent — the hauler has been notified.'
+        : `${json.count} loads sent — the hauler has been notified.`);
+      setOfferingOrders(false); setPickedOrders(new Set()); setBatchNotes('');
       refresh();
     } catch {
       setError('Network error — try again.');
@@ -305,10 +336,78 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
       <div className={card}>
         <div className="flex items-baseline justify-between gap-2 flex-wrap mb-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Loads</h2>
-          <button onClick={() => setOffering((v) => !v)} className="text-sm text-brand-700 hover:underline">
-            {offering ? 'Cancel' : 'Send a load'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setOfferingOrders((v) => !v); setOffering(false); }}
+              className="text-sm text-brand-700 hover:underline"
+            >
+              {offeringOrders ? 'Cancel' : 'Send orders'}
+            </button>
+            <button
+              onClick={() => { setOffering((v) => !v); setOfferingOrders(false); }}
+              className="text-sm text-brand-700 hover:underline"
+            >
+              {offering ? 'Cancel' : 'Send a one-off load'}
+            </button>
+          </div>
         </div>
+
+        {/* Tick the orders, hit send: one load per order, each carrying that
+            order's own job details and pay rate. The hauler accepts the ones
+            they can take and assigns drivers on their side. */}
+        {offeringOrders && (
+          <div className="border border-gray-200 rounded-md p-3 mb-4 bg-gray-50">
+            {orders.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                No open orders to send. Create one under Orders first.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  {orders.map((o) => (
+                    <label key={o.id} className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={pickedOrders.has(o.id)}
+                        onChange={(e) => {
+                          const next = new Set(pickedOrders);
+                          if (e.target.checked) next.add(o.id); else next.delete(o.id);
+                          setPickedOrders(next);
+                        }}
+                      />
+                      <span className="min-w-0">
+                        <span className="font-medium">{orderLabel(o)}</span>
+                        <span className="block text-xs text-gray-500">
+                          {[
+                            o.start_date && o.end_date
+                              ? (o.start_date === o.end_date ? o.start_date : `${o.start_date} → ${o.end_date}`)
+                              : (o.start_date || o.end_date),
+                            o.phase_code ? `Phase ${o.phase_code}` : null,
+                            o.equipment_type,
+                            o.pay_rate != null ? `pays $${Number(o.pay_rate).toFixed(2)}/${o.rate_unit || 'hour'}` : 'no pay rate set',
+                          ].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <label className="block mt-3"><span className={label}>Note to the hauler (optional)</span>
+                  <input value={batchNotes} onChange={(e) => setBatchNotes(e.target.value)} className={input} />
+                </label>
+                <button
+                  onClick={sendOrders}
+                  disabled={busy === 'orders' || pickedOrders.size === 0}
+                  className="mt-3 px-3 py-1.5 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+                >
+                  {busy === 'orders'
+                    ? 'Sending…'
+                    : `Send ${pickedOrders.size || ''} ${pickedOrders.size === 1 ? 'order' : 'orders'}`}
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {offering && (
           <div className="border border-gray-200 rounded-md p-3 mb-4 bg-gray-50">
@@ -327,7 +426,9 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
                       job_name: picked?.job_name || load.job_name,
                       phase_code: picked?.phase_code || load.phase_code,
                       equipment_type: picked?.equipment_type || load.equipment_type,
-                      rate: picked?.rate != null ? String(picked.rate) : load.rate,
+                      // The PAY rate — the load is what the hauler reads, and
+                      // the customer rate must never ride along on it.
+                      rate: picked?.pay_rate != null ? String(picked.pay_rate) : load.rate,
                       rate_unit: picked?.rate_unit || load.rate_unit,
                     });
                   }}
