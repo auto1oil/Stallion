@@ -58,8 +58,10 @@ export async function startHaulTicket(
         phase_code: load.phase_code,
         job_date: load.job_date,
         // What the hauler is owed. Never the customer's rate — that lives on
-        // the order, which haulers cannot read.
+        // the order, which haulers cannot read. The unit rides along so an
+        // hourly job bills hours even when the driver records tonnage.
         rate: load.rate,
+        rate_unit: load.rate_unit,
         notes: load.notes,
       })
       .select('id')

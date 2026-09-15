@@ -1973,6 +1973,12 @@ create table if not exists public.work_orders (
 -- later has to be applied here too for this file to stay re-runnable.
 alter table public.work_orders add column if not exists job_name       text;
 alter table public.work_orders add column if not exists equipment_type text;
+-- What the rate applies to: hour, ton, load, or day. Inherited from the order
+-- (or the dispatched load). Null on old tickets, which keep the original
+-- guess: tonnage present bills tons, otherwise hours. This is what stops an
+-- hourly job from billing its tonnage just because the tons were written down.
+alter table public.work_orders add column if not exists rate_unit      text
+  check (rate_unit is null or rate_unit in ('hour','ton','load','day'));
 
 create index if not exists work_orders_status_idx     on public.work_orders(status, job_date desc);
 create index if not exists work_orders_submitter_idx  on public.work_orders(submitted_by, created_at desc);

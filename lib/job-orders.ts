@@ -133,6 +133,9 @@ export function ticketDefaultsFrom(o: JobOrder, forHauler = false): Record<strin
   // The ticket's rate is what its filer is owed. A hauler's crew is owed the
   // order's pay rate; Stallion's own crew tickets bill at the order's rate.
   put('rate', forHauler ? o.pay_rate : o.rate);
+  // Both sides bill by the same unit — an hourly job is hourly for everyone,
+  // and it's what stops tonnage on an hourly ticket from being billed.
+  put('rate_unit', o.rate_unit);
 
   put('equipment_type', o.equipment_type);
   put('unit_number', o.unit_number);

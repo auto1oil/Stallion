@@ -4,8 +4,8 @@
 // ============================================================================
 // A ticket's money is always recomputed from the row, never trusted from the
 // client: worked hours come from start/stop (plus travel + down time), and the
-// invoice bills those hours at the ticket's rate. Tonnage-priced jobs bill
-// tonnage × rate instead.
+// rate_unit says what the rate applies to — hours, tons, loads, or the day.
+// Tonnage on an hourly ticket is information, not a bill.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createInvoice, fetchInvoicePdf } from '@/lib/quickbooks';
@@ -90,6 +90,10 @@ export type WorkOrder = {
   travel_hours: number | null;
   down_hours: number | null;
   rate: number | null;
+  // What the rate applies to: 'hour', 'ton', 'load', or 'day'. Inherited from
+  // the order (or the dispatched load). Null on old tickets, which fall back
+  // to the original guess: tonnage present bills tons, otherwise hours.
+  rate_unit: string | null;
   tonnage: number | null;
   tonnage_type: string | null;
   ticket_photo_path: string | null;
@@ -175,7 +179,7 @@ export const EDITABLE_FIELDS = [
   'hauler_id', 'hauler_load_id', 'trucking_company', 'material', 'supplier',
   'truck_type', 'truck_type_tons', 'driver_start_at', 'driver_end_at',
   'signed_out_state', 'sign_out_at', 'foreman_signature_path',
-  'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate',
+  'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate', 'rate_unit',
   'tonnage', 'tonnage_type', 'ticket_photo_path', 'short_ticket_path',
   'signature_path', 'contractor_id', 'notes',
 ] as const;
@@ -221,11 +225,14 @@ export function totalHours(wo: Pick<WorkOrder, 'start_at' | 'stop_at' | 'travel_
   return Math.round(sum * 100) / 100;
 }
 
-// What the ticket bills. Tonnage jobs bill tonnage × rate; everything else
-// bills hours × rate.
-export function ticketAmount(wo: Pick<WorkOrder,
-  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'rate' | 'tonnage' | 'tonnage_type'>
-  & { loads_tons?: number | null },
+// The fields the billing math reads. loads_count/loads_tons are optional so
+// callers holding a form draft (no trigger-maintained rollups) still fit.
+type Billable = Pick<WorkOrder,
+  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'tonnage'>
+  & { rate_unit?: string | null; loads_tons?: number | null; loads_count?: number | null };
+
+// What the ticket bills: the rate times whatever quantity its rate_unit says.
+export function ticketAmount(wo: Billable & Pick<WorkOrder, 'rate'>,
   loads?: Pick<WorkOrderLoad, 'tons'>[]): number {
   const rate = Number(wo.rate || 0);
   const qty = billableQuantity(wo, loads);
@@ -247,20 +254,35 @@ export function effectiveTonnage(
   return fromLines > 0 ? fromLines : Number(wo.tonnage || 0);
 }
 
-// The quantity the rate applies to, and its unit — hours unless the ticket
-// carries tonnage, in which case the tonnage is what's billed.
-export function billableQuantity(wo: Pick<WorkOrder,
-  'start_at' | 'stop_at' | 'travel_hours' | 'down_hours' | 'tonnage'>
-  & { loads_tons?: number | null },
+// The quantity the rate applies to. The rate_unit decides: an hourly job
+// bills hours even when tonnage was written down — there the tonnage is
+// information for the office, not the bill. Only a ticket with no unit at all
+// (filled before units existed, or by hand with no order) falls back to the
+// old guess: tonnage present bills tons, otherwise hours.
+export function billableQuantity(wo: Billable,
   loads?: Pick<WorkOrderLoad, 'tons'>[]): number {
+  switch (wo.rate_unit) {
+    case 'hour': return totalHours(wo);
+    case 'ton': return effectiveTonnage(wo, loads);
+    case 'load': return Number(wo.loads_count || 0);
+    // A ticket is one day's work by construction — the day rate bills once.
+    case 'day': return 1;
+  }
   const tons = effectiveTonnage(wo, loads);
   return tons > 0 ? tons : totalHours(wo);
 }
 
 export function billableUnit(
-  wo: Pick<WorkOrder, 'tonnage' | 'tonnage_type'> & { loads_tons?: number | null },
+  wo: Pick<WorkOrder, 'tonnage' | 'tonnage_type'>
+    & { rate_unit?: string | null; loads_tons?: number | null; loads_count?: number | null },
   loads?: Pick<WorkOrderLoad, 'tons'>[],
 ): string {
+  switch (wo.rate_unit) {
+    case 'hour': return 'hrs';
+    case 'ton': return wo.tonnage_type || 'tons';
+    case 'load': return 'loads';
+    case 'day': return 'day';
+  }
   return effectiveTonnage(wo, loads) > 0 ? (wo.tonnage_type || 'tons') : 'hrs';
 }
 
@@ -319,25 +341,33 @@ export async function invoiceWorkOrder(db: SupabaseClient, workOrderId: string):
     .eq('work_order_id', workOrderId);
   const loads = (loadRows as Pick<WorkOrderLoad, 'tons'>[]) || [];
 
-  const qty = billableQuantity(order, loads);
-
   // The CUSTOMER's rate comes off the order, not the ticket. A hauler's ticket
   // carries what the hauler is owed — billing the customer that number would
   // hand them Stallion's margin. Only a ticket with no order falls back to its
   // own rate, and there the two are the same number anyway.
+  //
+  // The order's rate UNIT rides along for the same reason: the customer is
+  // billed on the terms the order was written under. An hourly order bills
+  // hours even when the ticket recorded tonnage — there the tonnage is
+  // information, not the bill.
   let rate = Number(order.rate || 0);
+  let rateUnit = order.rate_unit || null;
   if (order.order_id) {
     const { data: jo } = await db
       .from('job_orders')
-      .select('rate')
+      .select('rate, rate_unit')
       .eq('id', order.order_id)
       .maybeSingle();
-    const billRate = Number((jo as { rate: number | null } | null)?.rate ?? 0);
+    const terms = jo as { rate: number | null; rate_unit: string | null } | null;
+    const billRate = Number(terms?.rate ?? 0);
     if (billRate > 0) rate = billRate;
     else if (order.hauler_id) {
       return { status: 400, body: { ok: false, error: 'the order has no customer rate set — add one on the order before invoicing' } };
     }
+    if (terms?.rate_unit) rateUnit = terms.rate_unit;
   }
+
+  const qty = billableQuantity({ ...order, rate_unit: rateUnit }, loads);
   if (qty <= 0) return { status: 400, body: { ok: false, error: 'nothing to bill — enter the start/stop times or tonnage first' } };
   if (rate <= 0) return { status: 400, body: { ok: false, error: 'enter a rate before invoicing' } };
 

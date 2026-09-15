@@ -10,7 +10,7 @@ import CustomerPicker from '@/components/CustomerPicker';
 import HaulerOnTicket from '@/components/HaulerOnTicket';
 import { orderLabel, ticketDefaultsFrom, type JobOrder } from '@/lib/job-orders';
 import {
-  onSiteHours, totalHours, ticketAmount, billableUnit,
+  onSiteHours, totalHours, ticketAmount, billableUnit, billableQuantity,
   type WorkOrder,
 } from '@/lib/work-orders';
 
@@ -75,6 +75,7 @@ function toDraft(wo: Partial<WorkOrder> | null): Draft {
     travel_hours: v(wo?.travel_hours),
     down_hours: v(wo?.down_hours),
     rate: v(wo?.rate),
+    rate_unit: v(wo?.rate_unit),
     tonnage: v(wo?.tonnage),
     tonnage_type: v(wo?.tonnage_type),
     notes: v(wo?.notes),
@@ -192,8 +193,10 @@ export default function WorkOrderForm({
     travel_hours: Number(draft.travel_hours) || 0,
     down_hours: Number(draft.down_hours) || 0,
     rate: Number(draft.rate) || 0,
+    rate_unit: draft.rate_unit || null,
     tonnage: Number(draft.tonnage) || 0,
     tonnage_type: draft.tonnage_type || null,
+    loads_count: loadTotals.loads,
   };
   const hours = totalHours(preview);
   // Bill off the load lines when they carry weights, exactly as the server
@@ -233,6 +236,7 @@ export default function WorkOrderForm({
       travel_hours: draft.travel_hours === '' ? null : Number(draft.travel_hours),
       down_hours: draft.down_hours === '' ? null : Number(draft.down_hours),
       rate: draft.rate === '' ? null : Number(draft.rate),
+      rate_unit: draft.rate_unit || null,
       tonnage: draft.tonnage === '' ? null : Number(draft.tonnage),
       tonnage_type: draft.tonnage_type || null,
       ticket_photo_path: ticketPhoto,
@@ -450,23 +454,46 @@ export default function WorkOrderForm({
           </label>
           <label><span className={label}>Tonnage</span>
             <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.tonnage} onChange={(e) => set('tonnage', e.target.value)} disabled={locked} className={input} />
+            {(draft.rate_unit === 'hour' || draft.rate_unit === 'day') && (
+              <span className="mt-1 block text-[11px] text-gray-500">
+                Info only — this ticket bills by the {draft.rate_unit}, not the tons.
+              </span>
+            )}
           </label>
           <label><span className={label}>Tonnage type</span>
             <select value={draft.tonnage_type} onChange={(e) => set('tonnage_type', e.target.value)} disabled={locked} className={input}>
               {TONNAGE_TYPES.map((t) => <option key={t} value={t}>{t || '— None —'}</option>)}
             </select>
           </label>
-          <label className="col-span-2"><span className={label}>Rate ($ per {unit === 'hrs' ? 'hour' : unit})</span>
+          <label><span className={label}>Rate ($)</span>
             <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.rate} onChange={(e) => set('rate', e.target.value)} disabled={locked} className={input} />
             {suggestedRate && Number(draft.rate) !== Number(suggestedRate.rate) && (
               <button
                 type="button"
-                onClick={() => set('rate', String(suggestedRate.rate))}
+                onClick={() => {
+                  setDraft((d) => ({
+                    ...d,
+                    rate: String(suggestedRate.rate),
+                    rate_unit: suggestedRate.rate_unit || d.rate_unit,
+                  }));
+                }}
                 className="mt-1 text-[11px] text-brand-700 hover:underline"
               >
                 Use the agreed rate for job {suggestedRate.job_number}: ${Number(suggestedRate.rate).toFixed(2)}/{suggestedRate.rate_unit}
               </button>
             )}
+          </label>
+          {/* The unit is what stops an hourly ticket from billing its tonnage.
+              It comes off the order; the blank option keeps old hand-filled
+              tickets on the original guess (tons if entered, else hours). */}
+          <label><span className={label}>Per</span>
+            <select value={draft.rate_unit} onChange={(e) => set('rate_unit', e.target.value)} disabled={locked} className={input}>
+              <option value="">Auto (tons if entered, else hours)</option>
+              <option value="hour">Hour</option>
+              <option value="ton">Ton</option>
+              <option value="load">Load</option>
+              <option value="day">Day</option>
+            </select>
           </label>
         </div>
 
@@ -479,7 +506,10 @@ export default function WorkOrderForm({
               <strong className="tabular-nums">{loadTotals.tons.toFixed(2)}</strong> tons
             </span>
           )}
-          <span className="text-gray-900 font-medium">Bills <span className="tabular-nums">${amount.toFixed(2)}</span></span>
+          <span className="text-gray-900 font-medium">
+            Bills <span className="tabular-nums">{billableQuantity(preview, previewLoads).toFixed(2)}</span> {unit}{' '}
+            = <span className="tabular-nums">${amount.toFixed(2)}</span>
+          </span>
         </div>
       </div>
 

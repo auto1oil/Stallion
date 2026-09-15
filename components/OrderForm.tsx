@@ -222,6 +222,12 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
           <label><span className={label}>Tonnage (optional)</span>
             <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.tonnage}
               onChange={(e) => set('tonnage', e.target.value)} className={input} />
+            {draft.rate_unit !== 'ton' && draft.tonnage.trim() !== '' && (
+              <span className="block mt-1 text-[11px] text-gray-500">
+                Info only — this order bills per {draft.rate_unit || 'hour'}, so
+                tonnage doesn&apos;t change the invoice.
+              </span>
+            )}
           </label>
           <label><span className={label}>Tonnage type</span>
             <select value={draft.tonnage_type} onChange={(e) => set('tonnage_type', e.target.value)} className={input}>
