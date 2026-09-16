@@ -192,8 +192,12 @@ export async function buildTicketPdf(
   }
 
   // ---- Signatures ----
-  await drawSignature(db, doc, page, wo.signature_path, "DRIVER'S SIGNATURE", left, 46);
-  await drawSignature(db, doc, page, wo.foreman_signature_path, "FOREMAN'S SIGNATURE", left + (right - left) / 2, 46);
+  const signedLine = (name: string | null, at: string | null) =>
+    [name, at ? fmtDateTime(at) : null].filter(Boolean).join(' · ') || null;
+  await drawSignature(db, doc, page, wo.signature_path, "DRIVER'S SIGNATURE", left, 52,
+    signedLine(wo.signature_name, wo.signature_signed_at));
+  await drawSignature(db, doc, page, wo.foreman_signature_path, "FOREMAN'S SIGNATURE", left + (right - left) / 2, 52,
+    signedLine(wo.foreman_signature_name, wo.foreman_signature_signed_at));
 
   return doc.save();
 }
@@ -209,6 +213,7 @@ async function drawSignature(
   label: string,
   x: number,
   baseline: number,
+  signedBy: string | null = null,
 ) {
   const width = 220;
   try {
@@ -231,6 +236,11 @@ async function drawSignature(
     thickness: 0.75, color: rgb(0.3, 0.3, 0.34),
   });
   page.drawText(label, { x, y: baseline - 10, size: 6.5, color: rgb(0.45, 0.45, 0.5) });
+  if (signedBy) {
+    // The typed name and the moment of signing, under the line — this is
+    // what says whose hand the drawing above was.
+    page.drawText(signedBy.slice(0, 48), { x, y: baseline - 20, size: 7.5, color: rgb(0.1, 0.1, 0.12) });
+  }
 }
 
 // Generate (or regenerate) the ticket's PDF, store it next to the ticket's

@@ -10,6 +10,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { pickEditable } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
+import { createAdminClient } from '@/lib/supabase-admin';
+import { checkFactoringLink } from '@/lib/factoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -77,6 +79,13 @@ export async function POST(req: Request) {
   // what scopes the row, and RLS refuses the insert outright if it's missing
   // or someone else's.
   if (actor.hauler_id) row.hauler_id = actor.hauler_id;
+
+  // Factor Payment only stands while the company's Auto 1 Funding link does
+  // — checked live, since the factoring side can switch it off any time.
+  if (row.payment_method === 'factor' && actor.hauler_id) {
+    const link = await checkFactoringLink(createAdminClient(), actor.hauler_id);
+    if (link.status !== 'linked') row.payment_method = 'standard';
+  }
 
   const finalRow = await withOrderMismatch(supabase, row, null);
 

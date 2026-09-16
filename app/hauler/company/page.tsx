@@ -20,6 +20,10 @@ export default function HaulerCompanyPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  // The Auto 1 Funding link — approved (and revocable) on the factoring side.
+  const [linkStatus, setLinkStatus] = useState<'none' | 'pending' | 'linked' | 'off' | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState('');
 
   const refresh = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -35,6 +39,30 @@ export default function HaulerCompanyPage() {
   }, [supabase]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/haulers/factoring-link', { cache: 'no-store' });
+        const json = await res.json();
+        if (json.ok) setLinkStatus(json.status);
+      } catch { /* card shows nothing rather than a wrong answer */ }
+    })();
+  }, []);
+
+  async function requestLink() {
+    setLinkBusy(true); setLinkError('');
+    try {
+      const res = await fetch('/api/haulers/factoring-link', { method: 'POST' });
+      const json = await res.json();
+      if (!json.ok) { setLinkError(json.error || 'Could not send the request.'); return; }
+      setLinkStatus(json.status);
+    } catch {
+      setLinkError('Network error — try again.');
+    } finally {
+      setLinkBusy(false);
+    }
+  }
 
   async function save() {
     if (!(form.name || '').trim()) { setError('The company needs a name.'); return; }
@@ -130,6 +158,42 @@ export default function HaulerCompanyPage() {
         >
           {busy ? 'Saving…' : 'Save details'}
         </button>
+      </div>
+
+      {/* Factor Payment is only offered once the factoring app's admin has
+          approved this company's Auto 1 Funding account — and they can turn
+          it off again over there at any time. */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-1">
+          Auto 1 Funding
+        </h2>
+        {linkStatus === 'linked' ? (
+          <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">
+            Your Auto 1 Funding account is linked — Factor Payment is available
+            on your haul tickets.
+          </p>
+        ) : linkStatus === 'pending' ? (
+          <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            Link requested — waiting on Auto 1 Funding&apos;s approval. Factor
+            Payment appears on your tickets once they approve it.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-gray-500 mb-3">
+              {linkStatus === 'off'
+                ? 'Your Auto 1 Funding link is currently switched off on their side. You can request it again.'
+                : 'Get paid on approved tickets through Auto 1 Funding instead of waiting on the pay run. Linking sends your company details to their team for approval.'}
+            </p>
+            <button
+              onClick={requestLink}
+              disabled={linkBusy || linkStatus === null}
+              className="px-4 py-2 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+            >
+              {linkBusy ? 'Requesting…' : 'Link Auto 1 Funding account'}
+            </button>
+          </>
+        )}
+        {linkError && <p className="text-sm text-red-600 mt-2">{linkError}</p>}
       </div>
 
       <HaulerDocuments haulerId={company.id} canUpload />

@@ -203,6 +203,16 @@ export default function WorkOrderForm({
   const [shortTicket, setShortTicket] = useState<string | null>(workOrder?.short_ticket_path ?? null);
   const [signature, setSignature] = useState<string | null>(workOrder?.signature_path ?? null);
   const [foremanSignature, setForemanSignature] = useState<string | null>(workOrder?.foreman_signature_path ?? null);
+  // Who signed and when — typed name + stamp, saved alongside each drawing.
+  const [signatureSigner, setSignatureSigner] = useState<{ name: string | null; at: string | null }>({
+    name: workOrder?.signature_name ?? null, at: workOrder?.signature_signed_at ?? null,
+  });
+  const [foremanSigner, setForemanSigner] = useState<{ name: string | null; at: string | null }>({
+    name: workOrder?.foreman_signature_name ?? null, at: workOrder?.foreman_signature_signed_at ?? null,
+  });
+  // Factor Payment only exists for a company whose Auto 1 Funding account is
+  // linked — approved (and revocable) on the factoring app's side.
+  const [factorAllowed, setFactorAllowed] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [rates, setRates] = useState<Rate[]>([]);
   const [orders, setOrders] = useState<JobOrder[]>([]);
@@ -272,7 +282,15 @@ export default function WorkOrderForm({
         // its drivers — gets the hauler treatment: no order book, job fields
         // locked, pay-side rate only.
         const { data: me } = await supabase.from('profiles').select('role, hauler_id').eq('id', user.id).single();
-        setIsHauler(me?.role === 'hauler' || !!me?.hauler_id);
+        const haulerSide = me?.role === 'hauler' || !!me?.hauler_id;
+        setIsHauler(haulerSide);
+        if (haulerSide) {
+          try {
+            const res = await fetch('/api/haulers/factoring-link', { cache: 'no-store' });
+            const json = await res.json();
+            setFactorAllowed(json.ok && json.status === 'linked');
+          } catch { /* stays hidden — no answer is not a yes */ }
+        }
       }
     })();
   }, [supabase]);
@@ -344,9 +362,16 @@ export default function WorkOrderForm({
       short_ticket_path: shortTicket,
       signature_path: signature,
       foreman_signature_path: foremanSignature,
+      signature_name: signatureSigner.name,
+      signature_signed_at: signatureSigner.at,
+      foreman_signature_name: foremanSigner.name,
+      foreman_signature_signed_at: foremanSigner.at,
       // A hauler completing without picking is standard pay — the default,
-      // not a gap the office has to chase.
-      payment_method: draft.payment_method || (isHauler ? 'standard' : null),
+      // not a gap the office has to chase. Factor only stands while the
+      // company's Auto 1 Funding link does; the server re-checks live.
+      payment_method: draft.payment_method === 'factor' && isHauler && !factorAllowed
+        ? 'standard'
+        : (draft.payment_method || (isHauler ? 'standard' : null)),
       notes: draft.notes.trim() || null,
     };
   }
@@ -399,6 +424,7 @@ export default function WorkOrderForm({
       if (!draft.start_at || !draft.stop_at) { setError('Enter the start and stop times before completing the ticket.'); return; }
       if (!ticketPhoto) { setError('Attach a photo of the paper ticket before completing it.'); return; }
       if (!foremanSignature) { setError('The job foreman needs to sign the ticket before it goes in.'); return; }
+      if (!foremanSigner.name) { setError('The foreman’s typed name is missing — clear their signature and have them sign again with their name.'); return; }
     }
     setBusy(submit ? 'submit' : 'save'); setError(''); setMsg('');
     try {
@@ -729,16 +755,23 @@ export default function WorkOrderForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <TicketSignature
           path={signature}
+          signerName={signatureSigner.name}
+          signedAt={signatureSigner.at}
           onChange={setSignature}
+          onSigned={(name, at) => setSignatureSigner({ name, at })}
           readOnly={locked}
           label="Driver's signature"
+          hint="Type your name, then sign."
         />
         <TicketSignature
           path={foremanSignature}
+          signerName={foremanSigner.name}
+          signedAt={foremanSigner.at}
           onChange={setForemanSignature}
+          onSigned={(name, at) => setForemanSigner({ name, at })}
           readOnly={locked}
           label="Foreman's signature"
-          hint="Signed off on site at the end of the day."
+          hint="The foreman types their name and signs on site at the end of the day."
         />
       </div>
 
@@ -760,7 +793,12 @@ export default function WorkOrderForm({
             service to fund. Standard Pay stays on the normal pay run.
           </p>
           <div className="grid grid-cols-2 gap-2">
-            {([['standard', 'Standard Pay'], ['factor', 'Factor Payment']] as const).map(([value, title]) => (
+            {/* Factor Payment only exists once the company's Auto 1 Funding
+                account is linked — no account, no button. */}
+            {(factorAllowed
+              ? ([['standard', 'Standard Pay'], ['factor', 'Factor Payment']] as const)
+              : ([['standard', 'Standard Pay']] as const)
+            ).map(([value, title]) => (
               <button
                 key={value}
                 type="button"
@@ -776,6 +814,13 @@ export default function WorkOrderForm({
               </button>
             ))}
           </div>
+          {!factorAllowed && (
+            <p className="mt-2 text-[11px] text-gray-500">
+              Factor Payment shows up here once your Auto 1 Funding account is
+              linked and approved — request it under{' '}
+              <Link href="/hauler/company" className="text-brand-700 hover:underline">Company</Link>.
+            </p>
+          )}
 
           {/* Factor Payment comes with a bill of sale to sign at the
               factoring app. Completing the ticket requires the signature. */}

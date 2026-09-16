@@ -7,20 +7,29 @@ import { createClient } from '@/lib/supabase-browser';
 // own ticket, and the job foreman signs it off at the end of the day — the two
 // signatures at the foot of the paper ticket.
 //
-// The drawn signature is saved as a PNG in the work-tickets bucket and the
-// ticket keeps its path.
+// A drawn squiggle alone doesn't say whose hand it was, so the signer also
+// types their name, and the moment of saving is stamped. Name, drawn image
+// and timestamp travel together: saved together, cleared together.
 
 const BUCKET = 'work-tickets';
 
 export default function TicketSignature({
   path,
+  signerName = null,
+  signedAt = null,
   onChange,
+  onSigned,
   readOnly = false,
   label = 'Signature',
   hint,
 }: {
   path: string | null;
+  signerName?: string | null;
+  signedAt?: string | null;
   onChange?: (path: string | null) => void;
+  // Fires with the typed name and the stamp the moment a signature saves,
+  // and with nulls when it's cleared.
+  onSigned?: (name: string | null, at: string | null) => void;
   readOnly?: boolean;
   label?: string;
   hint?: string;
@@ -28,6 +37,7 @@ export default function TicketSignature({
   const supabase = createClient();
   const sigRef = useRef<SignatureCanvas>(null);
   const [url, setUrl] = useState<string | null>(null);
+  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -41,6 +51,7 @@ export default function TicketSignature({
 
   async function save() {
     const pad = sigRef.current;
+    if (!name.trim()) { setError('Type your name first.'); return; }
     if (!pad || pad.isEmpty()) { setError('Sign in the box first.'); return; }
     setBusy(true); setError('');
     try {
@@ -54,6 +65,7 @@ export default function TicketSignature({
         .upload(key, bytes, { contentType: 'image/png', upsert: false });
       if (upErr) throw upErr;
       onChange?.(key);
+      onSigned?.(name.trim(), new Date().toISOString());
       await loadPreview(key);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the signature');
@@ -69,7 +81,7 @@ export default function TicketSignature({
         {path && !readOnly && (
           <button
             type="button"
-            onClick={() => { onChange?.(null); setUrl(null); }}
+            onClick={() => { onChange?.(null); onSigned?.(null, null); setUrl(null); setName(''); }}
             className="text-[11px] text-red-600 hover:underline"
           >
             Clear saved
@@ -79,13 +91,27 @@ export default function TicketSignature({
       {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
 
       {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt="Signature" className="mt-2 max-h-28 w-auto rounded border border-gray-200 bg-white" />
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt="Signature" className="mt-2 max-h-28 w-auto rounded border border-gray-200 bg-white" />
+          {(signerName || signedAt) && (
+            <p className="text-xs text-gray-600 mt-1">
+              Signed{signerName ? <> by <strong>{signerName}</strong></> : null}
+              {signedAt ? ` · ${new Date(signedAt).toLocaleString()}` : ''}
+            </p>
+          )}
+        </>
       ) : readOnly ? (
         <p className="text-xs text-gray-400 mt-2">Not signed.</p>
       ) : (
         <>
-          <p className="text-[11px] text-gray-500 mt-0.5 mb-2">Have the FSR sign here.</p>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Type your name"
+            autoComplete="name"
+            className="mt-2 mb-2 w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm"
+          />
           <div className="border-2 border-dashed border-gray-300 rounded-md">
             <SignatureCanvas ref={sigRef} canvasProps={{ width: 400, height: 160, className: 'w-full bg-white rounded-md' }} />
           </div>
@@ -103,6 +129,9 @@ export default function TicketSignature({
             </button>
             {error && <span className="text-xs text-red-600">{error}</span>}
           </div>
+          <p className="text-[10px] text-gray-400 mt-1">
+            Saving stamps the date and time with the name typed above.
+          </p>
         </>
       )}
     </div>

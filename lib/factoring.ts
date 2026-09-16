@@ -101,6 +101,104 @@ async function postToFactoring(
   }
 }
 
+// ---- The Auto 1 Funding account link ---------------------------------------
+// Only a hauler with an approved account in the factoring app may Factor
+// Payments. The link is requested from Stallion, approved by the factoring
+// app's admin, and can be switched off over there at any time — so the truth
+// lives there, Stallion caches the last answer on the haulers row, and the
+// enforcement points ask live.
+
+export type FactoringLinkStatus = 'none' | 'pending' | 'linked' | 'off';
+
+// The factoring endpoints live side by side: .../tickets, .../bill-of-sale,
+// .../link-request, .../link-status.
+function siblingEndpoint(ticketsUrl: string, name: string): string | null {
+  if (!/\/tickets\/?$/.test(ticketsUrl)) return null;
+  return ticketsUrl.replace(/\/tickets\/?$/, `/${name}`);
+}
+
+async function cacheLinkStatus(db: SupabaseClient, haulerId: string, status: FactoringLinkStatus, requested = false) {
+  const now = new Date().toISOString();
+  await db.from('haulers').update({
+    factoring_link_status: status,
+    factoring_link_checked_at: now,
+    ...(requested ? { factoring_link_requested_at: now } : {}),
+  }).eq('id', haulerId);
+}
+
+// The hauler asks to link their Auto 1 Funding account; the request lands on
+// the factoring app's admin queue.
+export async function requestFactoringLink(
+  db: SupabaseClient,
+  haulerId: string,
+): Promise<{ ok: boolean; status?: FactoringLinkStatus; error?: string }> {
+  try {
+    const { data: h } = await db.from('haulers').select('*').eq('id', haulerId).maybeSingle();
+    if (!h) return { ok: false, error: 'company not found' };
+    const config = await getFactoringConfig(db);
+    if (!config) return { ok: false, error: 'the factoring app isn’t connected yet — ask Stallion' };
+    const url = siblingEndpoint(config.url, 'link-request');
+    if (!url) return { ok: false, error: 'the factoring endpoint URL should end in /tickets — ask Stallion to fix it' };
+
+    const hauler = h as { name: string; mc_number: string | null; dot_number: string | null; contact_name: string | null; email: string | null; phone: string | null };
+    const res = await postToFactoring(url, config.apiKey, {
+      source: 'stallion-tank',
+      hauler_id: haulerId,
+      name: hauler.name,
+      mc_number: hauler.mc_number,
+      dot_number: hauler.dot_number,
+      contact_name: hauler.contact_name,
+      email: hauler.email,
+      phone: hauler.phone,
+    });
+    if (!res.ok) return { ok: false, error: `factoring app answered ${res.status}` };
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: string } | null;
+    if (!body?.ok) return { ok: false, error: 'the factoring app did not take the request' };
+    const status = (['pending', 'linked', 'off'].includes(body.status || '') ? body.status : 'pending') as FactoringLinkStatus;
+    await cacheLinkStatus(db, haulerId, status, true);
+    return { ok: true, status };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'could not reach the factoring app' };
+  }
+}
+
+// Ask the factoring app where the link stands right now. Falls back to the
+// cached answer when they can't be reached, and says so.
+export async function checkFactoringLink(
+  db: SupabaseClient,
+  haulerId: string,
+): Promise<{ ok: boolean; status: FactoringLinkStatus; live: boolean; error?: string }> {
+  const cached = async (): Promise<FactoringLinkStatus> => {
+    const { data: h } = await db.from('haulers')
+      .select('factoring_link_status').eq('id', haulerId).maybeSingle();
+    const s = (h as { factoring_link_status: string | null } | null)?.factoring_link_status;
+    return (['none', 'pending', 'linked', 'off'].includes(s || '') ? s : 'none') as FactoringLinkStatus;
+  };
+  try {
+    const config = await getFactoringConfig(db);
+    const url = config ? siblingEndpoint(config.url, 'link-status') : null;
+    if (!config || !url) return { ok: true, status: await cached(), live: false, error: 'factoring app not connected' };
+
+    const res = await postToFactoring(url, config.apiKey, {
+      source: 'stallion-tank',
+      hauler_id: haulerId,
+    });
+    if (!res.ok) return { ok: true, status: await cached(), live: false, error: `factoring app answered ${res.status}` };
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: string } | null;
+    if (!body?.ok || !['none', 'pending', 'linked', 'off'].includes(body.status || '')) {
+      return { ok: true, status: await cached(), live: false, error: 'unreadable answer from the factoring app' };
+    }
+    const status = body.status as FactoringLinkStatus;
+    await cacheLinkStatus(db, haulerId, status);
+    return { ok: true, status, live: true };
+  } catch (err) {
+    return {
+      ok: true, status: await cached(), live: false,
+      error: err instanceof Error ? err.message : 'could not reach the factoring app',
+    };
+  }
+}
+
 export type BillOfSale = {
   ok: boolean;
   url?: string;

@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { pickEditable, ORDER_LOCKED_FIELDS } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
-import { requestBillOfSale } from '@/lib/factoring';
+import { requestBillOfSale, checkFactoringLink } from '@/lib/factoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,6 +73,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         { status: 400 },
       );
     }
+  }
+
+  // Factor Payment is a privilege the factoring app grants per company and
+  // can revoke at any time — so a hauler-side write of 'factor' is checked
+  // live, not against the button that happened to be on screen.
+  if (patch.payment_method === 'factor' && actor?.hauler_id) {
+    const link = await checkFactoringLink(createAdminClient(), actor.hauler_id);
+    if (link.status !== 'linked') patch.payment_method = 'standard';
   }
 
   const finalPatch = await withOrderMismatch(supabase, patch, before);

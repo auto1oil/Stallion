@@ -65,6 +65,12 @@ export type WorkOrder = {
   signed_out_state: 'loaded' | 'empty' | null;
   sign_out_at: string | null;
   foreman_signature_path: string | null;
+  // Who signed, typed in their own words, and when — the drawn image alone
+  // doesn't say whose hand it was.
+  signature_name: string | null;
+  signature_signed_at: string | null;
+  foreman_signature_name: string | null;
+  foreman_signature_signed_at: string | null;
   office_start_haul: string | null;
   office_end_haul: string | null;
   office_travel_hours: number | null;
@@ -191,6 +197,8 @@ export const EDITABLE_FIELDS = [
   'hauler_id', 'hauler_load_id', 'trucking_company', 'material', 'supplier',
   'truck_type', 'truck_type_tons', 'driver_start_at', 'driver_end_at',
   'signed_out_state', 'sign_out_at', 'foreman_signature_path',
+  'signature_name', 'signature_signed_at',
+  'foreman_signature_name', 'foreman_signature_signed_at',
   'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate', 'rate_unit',
   'tonnage', 'tonnage_type', 'ticket_photo_path', 'short_ticket_path',
   'signature_path', 'contractor_id', 'payment_method', 'notes',

@@ -2019,6 +2019,12 @@ alter table public.work_orders add column if not exists factor_error   text;
 -- from before this moment no longer counts, because the numbers it signed
 -- off on are changing. The hauler signs the refreshed document to complete.
 alter table public.work_orders add column if not exists bos_reset_at   timestamptz;
+-- Who signed the ticket, in their own typed words, and when. The drawn image
+-- alone doesn't say whose hand it was; the name plus the stamp does.
+alter table public.work_orders add column if not exists signature_name              text;
+alter table public.work_orders add column if not exists signature_signed_at         timestamptz;
+alter table public.work_orders add column if not exists foreman_signature_name      text;
+alter table public.work_orders add column if not exists foreman_signature_signed_at timestamptz;
 -- The generated haul-ticket PDF (work-tickets bucket) that rides along on the
 -- QuickBooks invoice and the factoring hand-off.
 alter table public.work_orders add column if not exists ticket_pdf_path text;
@@ -2849,17 +2855,30 @@ create policy "haulers edit own" on public.haulers
   using (id = public.my_hauler_id() and public.has_role(array['hauler']))
   with check (id = public.my_hauler_id() and public.has_role(array['hauler']));
 
+-- Whether a company may Factor Payments is decided in the factoring app and
+-- can be switched off over there at any time. These columns are Stallion's
+-- cache of the factoring app's last answer, written by the server; the
+-- enforcement points re-ask the factoring app live.
+alter table public.haulers add column if not exists factoring_link_status text not null default 'none'
+  check (factoring_link_status in ('none', 'pending', 'linked', 'off'));
+alter table public.haulers add column if not exists factoring_link_requested_at timestamptz;
+alter table public.haulers add column if not exists factoring_link_checked_at   timestamptz;
+
 -- Whether a company is still hauling for Stallion is Stallion's decision, and
--- RLS gates rows rather than columns, so a trigger holds that one column.
+-- whether it may factor is the factoring app's — RLS gates rows rather than
+-- columns, so a trigger holds those columns against the company's own edits.
 create or replace function public.guard_hauler_active()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if auth.uid() is null or current_user = 'service_role' then
     return new;
   end if;
-  if new.active is distinct from old.active
+  if (new.active is distinct from old.active
+      or new.factoring_link_status is distinct from old.factoring_link_status
+      or new.factoring_link_requested_at is distinct from old.factoring_link_requested_at
+      or new.factoring_link_checked_at is distinct from old.factoring_link_checked_at)
      and not (public.is_admin() or public.has_role(array['office'])) then
-    raise exception 'only Stallion can deactivate a hauling company';
+    raise exception 'that column on a hauling company is not the company''s to set';
   end if;
   return new;
 end;

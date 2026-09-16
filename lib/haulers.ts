@@ -50,6 +50,11 @@ export type Hauler = {
   dot_number: string | null;
   insurance_expires: string | null;
   active: boolean;
+  // The Auto 1 Funding link, cached from the factoring app's last answer.
+  // 'linked' is what unlocks Factor Payment; the factoring side can flip it.
+  factoring_link_status: 'none' | 'pending' | 'linked' | 'off';
+  factoring_link_requested_at: string | null;
+  factoring_link_checked_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
