@@ -418,6 +418,53 @@ export default function WorkOrderForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHauler, draft.payment_method, id]);
 
+  // Share the printable haul ticket — the phone's share sheet handles text,
+  // email, AirDrop, whatever's on the device. The current fields are saved
+  // first so the PDF matches the screen, then the fresh PDF is fetched and
+  // handed to the share sheet as a file. Where file-sharing isn't available
+  // (desktop), the PDF opens in a tab instead.
+  async function shareTicket() {
+    if (!id) return;
+    setBusy('share'); setError(''); setMsg('');
+    try {
+      if (!locked) {
+        await fetch(`/api/work-orders/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body()),
+        }).catch(() => null);
+      }
+      const res = await fetch(`/api/work-orders/${id}/ticket-pdf`, { method: 'POST' });
+      const json = await res.json();
+      if (!json.ok) { setError(json.error || 'Could not build the ticket PDF.'); return; }
+
+      let shared = false;
+      try {
+        const blob = await fetch(json.url).then((r) => r.blob());
+        const file = new File([blob], json.filename, { type: 'application/pdf' });
+        if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Haul ticket',
+            text: [draft.job_number ? `Job ${draft.job_number}` : null, draft.job_date].filter(Boolean).join(' · '),
+          });
+          shared = true;
+        }
+      } catch (e) {
+        // Backing out of the share sheet is not an error worth showing.
+        if (e instanceof Error && e.name === 'AbortError') { setBusy(''); return; }
+      }
+      if (!shared) {
+        const tab = window.open('about:blank', '_blank');
+        if (tab) tab.location.href = json.url; else window.location.href = json.url;
+      }
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function save(submit: boolean) {
     if (submit) {
       if (!draft.job_number.trim()) { setError('Enter the job number before completing the ticket.'); return; }
@@ -774,6 +821,24 @@ export default function WorkOrderForm({
           hint="The foreman types their name and signs on site at the end of the day."
         />
       </div>
+
+      {/* Once the foreman has signed with their name, the ticket is worth
+          handing over — the share sheet does text, email, AirDrop. */}
+      {id && foremanSignature && foremanSigner.name && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-sm text-gray-700">
+            Ticket signed by <strong>{foremanSigner.name}</strong> — send them a copy.
+          </span>
+          <button
+            type="button"
+            onClick={shareTicket}
+            disabled={busy === 'share'}
+            className="px-4 py-2 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+          >
+            {busy === 'share' ? 'Building the PDF…' : 'Share ticket (text · email · AirDrop)'}
+          </button>
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <label><span className={label}>Notes</span>
