@@ -60,6 +60,12 @@ async function buildTicketPayload(db: SupabaseClient, wo: WorkOrder) {
     payload: {
       source: 'stallion-tank',
       ticket_id: wo.id,
+      // Haulers are matched by this id on the factoring side (name is their
+      // fallback), and it's what their 403 gate keys on.
+      hauler_id: wo.hauler_id,
+      // The supervisor/foreman's typed sign-off, displayed on the deal.
+      supervisor_name: wo.foreman_signature_name,
+      supervisor_signed_at: wo.foreman_signature_signed_at,
       ticket_number: wo.ticket_number,
       job_number: wo.job_number,
       job_name: wo.job_name,
@@ -117,6 +123,24 @@ function siblingEndpoint(ticketsUrl: string, name: string): string | null {
   return ticketsUrl.replace(/\/tickets\/?$/, `/${name}`);
 }
 
+// The factoring app says 'approved' where Stallion says 'linked' — accept
+// either wording, plus their bare approved flag.
+function normalizeLinkStatus(body: { status?: string; approved?: boolean } | null): FactoringLinkStatus | null {
+  if (!body) return null;
+  const s = body.status === 'approved' ? 'linked' : body.status;
+  if (s && ['none', 'pending', 'linked', 'off'].includes(s)) return s as FactoringLinkStatus;
+  if (body.approved === true) return 'linked';
+  return null;
+}
+
+// Their tickets/bill-of-sale endpoints answer 403 with { status } when the
+// hauler isn't approved. Turn that into words a person can act on.
+function linkGateMessage(status: string | undefined): string {
+  if (status === 'pending') return 'Auto 1 Funding hasn’t approved this company’s link yet';
+  if (status === 'off') return 'this company’s Auto 1 Funding link is switched off';
+  return 'this company’s Auto 1 Funding account isn’t linked';
+}
+
 async function cacheLinkStatus(db: SupabaseClient, haulerId: string, status: FactoringLinkStatus, requested = false) {
   const now = new Date().toISOString();
   await db.from('haulers').update({
@@ -152,9 +176,9 @@ export async function requestFactoringLink(
       phone: hauler.phone,
     });
     if (!res.ok) return { ok: false, error: `factoring app answered ${res.status}` };
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: string } | null;
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: string; approved?: boolean } | null;
     if (!body?.ok) return { ok: false, error: 'the factoring app did not take the request' };
-    const status = (['pending', 'linked', 'off'].includes(body.status || '') ? body.status : 'pending') as FactoringLinkStatus;
+    const status = normalizeLinkStatus(body) || 'pending';
     await cacheLinkStatus(db, haulerId, status, true);
     return { ok: true, status };
   } catch (err) {
@@ -184,11 +208,11 @@ export async function checkFactoringLink(
       hauler_id: haulerId,
     });
     if (!res.ok) return { ok: true, status: await cached(), live: false, error: `factoring app answered ${res.status}` };
-    const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: string } | null;
-    if (!body?.ok || !['none', 'pending', 'linked', 'off'].includes(body.status || '')) {
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: string; approved?: boolean } | null;
+    const status = body?.ok ? normalizeLinkStatus(body) : null;
+    if (!status) {
       return { ok: true, status: await cached(), live: false, error: 'unreadable answer from the factoring app' };
     }
-    const status = body.status as FactoringLinkStatus;
     await cacheLinkStatus(db, haulerId, status);
     return { ok: true, status, live: true };
   } catch (err) {
@@ -241,6 +265,14 @@ export async function requestBillOfSale(
       ...payload,
       status: 'factor_payment_selected',
     });
+    // 403 is their link gate — the hauler isn't approved (or was switched
+    // off). Cache the answer so the Factor button disappears too.
+    if (res.status === 403) {
+      const gate = (await res.json().catch(() => null)) as { status?: string } | null;
+      const s = normalizeLinkStatus(gate ? { status: gate.status } : null);
+      if (s && wo.hauler_id) await cacheLinkStatus(db, wo.hauler_id, s);
+      return { ok: false, error: linkGateMessage(gate?.status) };
+    }
     if (!res.ok) {
       return { ok: false, unreachable: res.status >= 500, error: `factoring app answered ${res.status}` };
     }
@@ -317,6 +349,14 @@ export async function sendTicketToFactoring(
       qb_invoice_number: wo.qb_invoice_number,
       ticket_pdf_url: pdfUrl,
     });
+    // Their link gate: not approved (or switched off) over there. Recorded
+    // like any other factor_error — the approval itself always stands.
+    if (res.status === 403) {
+      const gate = (await res.json().catch(() => null)) as { status?: string } | null;
+      const s = normalizeLinkStatus(gate ? { status: gate.status } : null);
+      if (s && wo.hauler_id) await cacheLinkStatus(db, wo.hauler_id, s);
+      return fail(linkGateMessage(gate?.status));
+    }
     if (!res.ok) {
       return fail(`factoring app answered ${res.status}`);
     }
