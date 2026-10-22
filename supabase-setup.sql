@@ -3024,5 +3024,89 @@ create policy "login_events master admin read" on public.login_events
 
 
 -- ==========================================================================
+-- 49. Charges — fuel & misc purchases, each with its receipt photo
+-- ==========================================================================
+-- A driver buys fuel or supplies on the company's dime and scans the receipt
+-- on the spot. The photo is the point: receipt_path is NOT NULL, so a charge
+-- physically cannot be recorded without its picture. Files live in a private
+-- 'receipts' bucket under the uploader's uid.
+
+create table if not exists public.charges (
+  id            uuid primary key default gen_random_uuid(),
+  created_by    uuid references public.profiles(id) on delete set null,
+  spent_by_name text,
+  charged_on    date not null default current_date,
+  type          text not null check (type in ('fuel', 'misc')),
+  amount        numeric(12,2) not null check (amount >= 0),
+  vendor        text,
+  unit_number   text,
+  job_number    text,
+  notes         text,
+  receipt_path  text not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists charges_on_idx   on public.charges (charged_on desc);
+create index if not exists charges_by_idx   on public.charges (created_by, charged_on desc);
+create index if not exists charges_type_idx on public.charges (type, charged_on desc);
+
+drop trigger if exists trg_charges_touch on public.charges;
+create trigger trg_charges_touch before update on public.charges
+  for each row execute function public.touch_updated_at();
+
+grant select, insert, update, delete on public.charges to authenticated;
+alter table public.charges enable row level security;
+
+-- Whoever spent the money records it and can fix their own entry; the office
+-- and admins see and manage everything.
+drop policy if exists "charges own" on public.charges;
+create policy "charges own" on public.charges
+  for all to authenticated
+  using (created_by = auth.uid())
+  with check (created_by = auth.uid());
+
+drop policy if exists "charges staff" on public.charges;
+create policy "charges staff" on public.charges
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+-- ---- Storage: the receipts bucket ----------------------------------------
+insert into storage.buckets (id, name, public)
+  values ('receipts', 'receipts', false)
+  on conflict (id) do nothing;
+
+drop policy if exists "receipts write" on storage.objects;
+create policy "receipts write" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'receipts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "receipts read" on storage.objects;
+create policy "receipts read" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'receipts'
+    and (
+      public.is_admin()
+      or public.has_role(array['office'])
+      or (storage.foldername(name))[1] = auth.uid()::text
+    )
+  );
+
+drop policy if exists "receipts delete" on storage.objects;
+create policy "receipts delete" on storage.objects
+  for delete to authenticated
+  using (
+    bucket_id = 'receipts'
+    and (public.is_admin() or public.has_role(array['office'])
+         or (storage.foldername(name))[1] = auth.uid()::text)
+  );
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

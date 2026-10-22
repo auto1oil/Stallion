@@ -74,6 +74,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/admin/dashboard',       label: 'Dashboard' },
     { href: '/admin/po',              label: 'PO #' },
     { href: '/admin/hours',           label: 'Time Clock' },
+    { href: '/admin/charges',         label: 'Charges' },
     { href: '/admin/users',           label: 'Users' },
   ];
   // Office reviews + invoices tickets; it doesn't run the rest of the shop.
@@ -83,6 +84,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/haulers',             label: 'Haulers' },
     { href: '/driver/customers',    label: 'Customers' },
     { href: '/driver/hours',        label: 'Hours' },
+    { href: '/admin/charges',       label: 'Charges' },
     { href: '/tasks',               label: 'Tasks' },
     { href: '/reminders',           label: 'Reminders' },
   ];
@@ -94,6 +96,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/driver/delivery-log',   label: 'Delivery Log' },
     { href: '/driver/customers',      label: 'Customers' },
     { href: '/driver/hours',          label: 'Hours' },
+    { href: '/charges',               label: 'Charges' },
     { href: '/tasks',                 label: 'Tasks' },
     { href: '/reminders',             label: 'Reminders' },
   ];
@@ -125,6 +128,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
   // Mechanic / labor are hourly staff: clock in + tasks/reminders.
   const hourlyLinks = [
     { href: '/driver/hours', label: 'Hours' },
+    { href: '/charges',      label: 'Charges' },
     { href: '/tasks',        label: 'Tasks' },
     { href: '/reminders',    label: 'Reminders' },
   ];
