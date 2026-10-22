@@ -53,7 +53,6 @@ export const FEATURES: Feature[] = [
   { group: 'admin', key: 'admin:/admin/dashboard', label: 'Dashboard' },
   { group: 'admin', key: 'admin:/admin/po', label: 'PO #' },
   { group: 'admin', key: 'admin:/admin/hours', label: 'Time Clock' },
-  { group: 'admin', key: 'admin:/admin/charges', label: 'Charges' },
   { group: 'admin', key: 'admin:/admin/users', label: 'Users' },
   // Office
   { group: 'office', key: 'office:/work-orders/orders', label: 'Orders' },
@@ -61,7 +60,6 @@ export const FEATURES: Feature[] = [
   { group: 'office', key: 'office:/haulers', label: 'Haulers' },
   { group: 'office', key: 'office:/driver/customers', label: 'Customers' },
   { group: 'office', key: 'office:/driver/hours', label: 'Hours' },
-  { group: 'office', key: 'office:/admin/charges', label: 'Charges' },
   { group: 'office', key: 'office:/tasks', label: 'Tasks' },
   { group: 'office', key: 'office:/reminders', label: 'Reminders' },
   // Driver / crew
@@ -71,7 +69,6 @@ export const FEATURES: Feature[] = [
   { group: 'driver', key: 'driver:/driver/delivery-log', label: 'Delivery Log' },
   { group: 'driver', key: 'driver:/driver/customers', label: 'Customers' },
   { group: 'driver', key: 'driver:/driver/hours', label: 'Hours' },
-  { group: 'driver', key: 'driver:/charges', label: 'Charges' },
   { group: 'driver', key: 'driver:/tasks', label: 'Tasks' },
   { group: 'driver', key: 'driver:/reminders', label: 'Reminders' },
   // Contractor
