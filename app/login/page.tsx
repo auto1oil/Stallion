@@ -39,6 +39,9 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
+      // Record the sign-in before moving on — identity comes from the fresh
+      // session cookie, and a failure here never blocks the login itself.
+      await fetch('/api/auth/login-event', { method: 'POST', keepalive: true }).catch(() => null);
       router.push('/');
       router.refresh();
     }

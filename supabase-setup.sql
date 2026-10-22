@@ -2988,5 +2988,37 @@ create policy "hauler docs delete" on storage.objects
 
 
 -- ==========================================================================
+-- 48. Login events — the app's own record of every sign-in
+-- ==========================================================================
+-- Supabase's auth audit log exists but isn't reachable from the browser; this
+-- table is the app's copy, written by the server on each successful sign-in
+-- and read on the admin Users page. Who, when, from what address and device.
+--
+-- No insert/update/delete policies for authenticated on purpose: rows are
+-- written only by the service role from the login-event route, so nobody can
+-- forge or scrub their own trail from a browser.
+
+create table if not exists public.login_events (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users(id) on delete set null,
+  email      text,
+  at         timestamptz not null default now(),
+  ip         text,
+  user_agent text
+);
+
+create index if not exists login_events_at_idx   on public.login_events (at desc);
+create index if not exists login_events_user_idx on public.login_events (user_id, at desc);
+
+grant select on public.login_events to authenticated;
+alter table public.login_events enable row level security;
+
+drop policy if exists "login_events staff read" on public.login_events;
+create policy "login_events staff read" on public.login_events
+  for select to authenticated
+  using (public.is_admin() or public.has_role(array['office']));
+
+
+-- ==========================================================================
 -- DONE
 -- ==========================================================================

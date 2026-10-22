@@ -11,8 +11,10 @@ export function createClient() {
         getAll() { return cookieStore.getAll(); },
         setAll(cookiesToSet) {
           try {
+            // Session-only auth cookies: stripping the lifetime makes them
+            // die with the browser, so every fresh open signs in again.
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, { ...options, maxAge: undefined, expires: undefined })
             );
           } catch { /* server component, ignore */ }
         },
