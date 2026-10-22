@@ -3013,10 +3013,14 @@ create index if not exists login_events_user_idx on public.login_events (user_id
 grant select on public.login_events to authenticated;
 alter table public.login_events enable row level security;
 
+-- Who signs in from where is the owner's information alone — not the
+-- office's, not other admins'. RLS holds the line even if someone queries
+-- the table directly.
 drop policy if exists "login_events staff read" on public.login_events;
-create policy "login_events staff read" on public.login_events
+drop policy if exists "login_events master admin read" on public.login_events;
+create policy "login_events master admin read" on public.login_events
   for select to authenticated
-  using (public.is_admin() or public.has_role(array['office']));
+  using (public.is_master_admin());
 
 
 -- ==========================================================================

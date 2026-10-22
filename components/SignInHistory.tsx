@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
 
 // The app's own sign-in record, newest first. Rows are written by the server
-// on every successful login (the login_events table takes no browser writes),
-// so this is the history the platform's audit log stopped keeping.
+// on every successful login (the login_events table takes no browser writes).
+// Master admin's eyes only: the panel doesn't render for anyone else, and
+// RLS returns them nothing even if they query the table directly.
 
 type LoginEvent = {
   id: string;
@@ -34,6 +35,18 @@ export default function SignInHistory() {
   const [events, setEvents] = useState<LoginEvent[] | null>(null);
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(25);
+  const [isMaster, setIsMaster] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: me } = await supabase
+        .from('profiles').select('role').eq('id', user.id).single();
+      setIsMaster(me?.role === 'master_admin');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!open || events !== null) return;
@@ -44,6 +57,8 @@ export default function SignInHistory() {
       .limit(200)
       .then(({ data }) => setEvents((data as LoginEvent[]) || []));
   }, [open, events, supabase]);
+
+  if (!isMaster) return null;
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg">
