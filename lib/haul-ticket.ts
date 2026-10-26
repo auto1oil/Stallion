@@ -8,6 +8,7 @@
 
 import type { createAdminClient } from '@/lib/supabase-admin';
 import type { HaulerLoad } from '@/lib/haulers';
+import { sendPendingTicket } from '@/lib/factoring';
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -69,6 +70,11 @@ export async function startHaulTicket(
     if (error || !wo) return null;
 
     await db.from('hauler_loads').update({ work_order_id: wo.id }).eq('id', load.id);
+
+    // A linked company's ticket shows up at the funding app as a pending
+    // deal from the moment it exists. Best-effort courtesy feed.
+    await sendPendingTicket(db, wo.id as string);
+
     return wo.id as string;
   } catch {
     return null;

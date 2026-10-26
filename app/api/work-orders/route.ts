@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase-server';
 import { pickEditable } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { checkFactoringLink } from '@/lib/factoring';
+import { checkFactoringLink, sendPendingTicket } from '@/lib/factoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -101,5 +101,12 @@ export async function POST(req: Request) {
     .single();
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+  // A linked company's ticket feeds the funding app as a pending deal from
+  // birth. Best-effort — the save already succeeded.
+  if ((data as { hauler_id: string | null }).hauler_id) {
+    await sendPendingTicket(createAdminClient(), (data as { id: string }).id);
+  }
+
   return NextResponse.json({ ok: true, work_order: data });
 }

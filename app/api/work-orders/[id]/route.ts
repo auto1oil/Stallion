@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { pickEditable, ORDER_LOCKED_FIELDS } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
-import { requestBillOfSale, checkFactoringLink } from '@/lib/factoring';
+import { requestBillOfSale, checkFactoringLink, sendPendingTicket } from '@/lib/factoring';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -127,6 +127,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         bill_of_sale_url: bos.url,
       }, { status: 400 });
     }
+  }
+
+  // Every save of a linked company's ticket refreshes its pending deal at the
+  // funding app — live numbers while it's worked, 'completed' on submit.
+  // Best-effort; the save already succeeded.
+  if ((data as { hauler_id: string | null }).hauler_id) {
+    await sendPendingTicket(createAdminClient(), params.id);
   }
 
   // Tell the office a ticket is waiting. Best-effort: a failed notify must not

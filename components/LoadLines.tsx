@@ -80,6 +80,14 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
     setLoading(false);
   }, [supabase, workOrderId]);
 
+  // Nudge the ticket's pending deal at the funding app after a change lands.
+  // Fire-and-forget: the stamp is already saved, and for tickets the funding
+  // app doesn't care about this is a server-side no-op.
+  const syncPending = useCallback(() => {
+    fetch(`/api/work-orders/${workOrderId}/pending-sync`, { method: 'POST', keepalive: true })
+      .catch(() => null);
+  }, [workOrderId]);
+
   useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {
@@ -111,6 +119,7 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
     setPending((p) => { const n = { ...p }; delete n[pk]; return n; });
     if (err) { setError(err.message); return; }
     refresh();
+    syncPending();
   }
 
   async function clearStamp(load: WorkOrderLoad, key: LoadStampKey) {
@@ -125,6 +134,7 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
     setBusy('');
     if (err) { setError(err.message); return; }
     refresh();
+    syncPending();
   }
 
   async function setField(loadNo: number, field: 'ticket_number' | 'tons', value: string) {
@@ -139,6 +149,7 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
         .insert({ work_order_id: workOrderId, load_no: loadNo, [field]: val });
       refresh();
     }
+    syncPending();
   }
 
   async function removeLoad(load: WorkOrderLoad) {
@@ -147,6 +158,7 @@ export default function LoadLines({ workOrderId, locked = false, onTotalsChange 
     await supabase.from('work_order_loads').delete().eq('id', load.id);
     setBusy('');
     refresh();
+    syncPending();
   }
 
   const nextNo = loads.length ? Math.max(...loads.map((l) => l.load_no)) + 1 : 1;

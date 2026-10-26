@@ -168,6 +168,62 @@ export async function pingFactoring(db: SupabaseClient): Promise<FactoringPing> 
   }
 }
 
+// ---- Pending deals ---------------------------------------------------------
+// From the moment a linked hauler starts a ticket, the funding app sees it as
+// a pending deal with live numbers — re-POSTed on every save and every load
+// stamp, idempotent per ticket_id. 'in_progress' while the driver works it,
+// 'completed' when they submit; after that the approval hand-off owns the
+// deal. Strictly best-effort and quiet: a pending update is a courtesy feed,
+// so a failure is never recorded on the ticket and never surfaces to the
+// driver.
+
+function pendingPhase(status: string): 'in_progress' | 'completed' | null {
+  if (status === 'draft' || status === 'rejected') return 'in_progress';
+  if (status === 'submitted') return 'completed';
+  return null; // office-approved and beyond: the approved hand-off owns it
+}
+
+export async function sendPendingTicket(
+  db: SupabaseClient,
+  workOrderId: string,
+): Promise<{ ok: boolean }> {
+  try {
+    const { data: row } = await db
+      .from('work_orders').select('*').eq('id', workOrderId).maybeSingle();
+    if (!row) return { ok: false };
+    const wo = row as WorkOrder;
+    if (!wo.hauler_id) return { ok: false };
+    const phase = pendingPhase(wo.status);
+    if (!phase) return { ok: false };
+
+    // Only companies whose Auto 1 Funding link is active. The cached status
+    // is enough here — it's refreshed by every screen that matters, and the
+    // funding app's own 403 gate is the live backstop.
+    const { data: h } = await db
+      .from('haulers').select('factoring_link_status').eq('id', wo.hauler_id).maybeSingle();
+    if ((h as { factoring_link_status: string | null } | null)?.factoring_link_status !== 'linked') {
+      return { ok: false };
+    }
+
+    const config = await getFactoringConfig(db);
+    if (!config) return { ok: false };
+    const url = siblingEndpoint(config.url, 'pending');
+    if (!url) return { ok: false };
+
+    const { payload } = await buildTicketPayload(db, wo);
+    const res = await postToFactoring(url, config.apiKey, {
+      ...payload,
+      status: 'pending',
+      ticket_status: phase,
+      payment_method: wo.payment_method || 'standard',
+      updated_at: new Date().toISOString(),
+    });
+    return { ok: res.ok };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // ---- The Auto 1 Funding account link ---------------------------------------
 // Only a hauler with an approved account in the factoring app may Factor
 // Payments. The link is requested from Stallion, approved by the factoring
