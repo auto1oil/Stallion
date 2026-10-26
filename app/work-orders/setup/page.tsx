@@ -32,11 +32,14 @@ export default function WorkOrderSetupPage() {
   const [rateError, setRateError] = useState('');
 
   // The factoring hand-off: where approved factor-pay tickets get POSTed.
-  // Master admin only — it's a credential, and RLS enforces the same line.
   const [isMaster, setIsMaster] = useState(false);
   const [factorUrl, setFactorUrl] = useState('');
   const [factorKey, setFactorKey] = useState('');
   const [savedFactor, setSavedFactor] = useState(false);
+  // Test connection: probes the SAVED settings against the funding app.
+  const [pingBusy, setPingBusy] = useState(false);
+  const [ping, setPing] = useState<{ ok: boolean; message: string } | null>(null);
+  const [everSavedUrl, setEverSavedUrl] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -49,6 +52,7 @@ export default function WorkOrderSetupPage() {
       setItemName(m.get('work_order_qb_item_name') || '');
       setFactorUrl(m.get('factoring_webhook_url') || '');
       setFactorKey(m.get('factoring_api_key') || '');
+      setEverSavedUrl(!!(m.get('factoring_webhook_url') || '').trim());
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: me } = await supabase.from('profiles').select('role').eq('id', user.id).single();
@@ -90,13 +94,26 @@ export default function WorkOrderSetupPage() {
   }
 
   async function saveFactoring() {
-    setSavedFactor(false);
+    setSavedFactor(false); setPing(null);
     await supabase.from('app_settings').upsert([
       { key: 'factoring_webhook_url', value: factorUrl.trim() },
       { key: 'factoring_api_key', value: factorKey.trim() },
     ], { onConflict: 'key' });
     setSavedFactor(true);
+    setEverSavedUrl(!!factorUrl.trim());
     setTimeout(() => setSavedFactor(false), 1500);
+  }
+
+  async function testFactoring() {
+    setPingBusy(true); setPing(null);
+    try {
+      const res = await fetch('/api/factoring/ping', { method: 'POST' });
+      setPing(await res.json());
+    } catch {
+      setPing({ ok: false, message: 'Couldn’t reach Auto 1 Funding: network error.' });
+    } finally {
+      setPingBusy(false);
+    }
   }
 
   async function addRate() {
@@ -172,10 +189,28 @@ export default function WorkOrderSetupPage() {
               type="password" autoComplete="off" className={`${input} w-full block mt-1`} />
           </label>
         </div>
-        <button onClick={saveFactoring} className="mt-3 px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium">
-          Save
-        </button>
-        {savedFactor && <p className="text-xs text-emerald-700 mt-1">Saved ✓</p>}
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          <button onClick={saveFactoring} className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium">
+            Save
+          </button>
+          <button
+            onClick={testFactoring}
+            disabled={pingBusy || !everSavedUrl}
+            title={everSavedUrl ? undefined : 'Save an endpoint first'}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40 font-medium"
+          >
+            {pingBusy ? 'Testing…' : 'Test connection'}
+          </button>
+          {savedFactor && <span className="text-xs text-emerald-700">Saved ✓</span>}
+        </div>
+        <p className="mt-1 text-[11px] text-gray-500">
+          The test checks what&apos;s <strong>saved</strong> — hit Save first if you just changed something.
+        </p>
+        {ping && (
+          <p className={`mt-2 text-sm font-medium ${ping.ok ? 'text-emerald-700' : 'text-red-600'}`}>
+            {ping.ok ? '✓' : '✗'} {ping.message}
+          </p>
+        )}
       </div>
       )}
 

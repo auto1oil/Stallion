@@ -107,6 +107,67 @@ async function postToFactoring(
   }
 }
 
+// A handshake that proves the connection end to end — URL right, key accepted,
+// their deployment answering — without creating anything on their side:
+// link-status for a hauler that can't exist answers {ok, status:'none'} from a
+// healthy deployment, and every failure mode answers differently. Message
+// wordings follow the funding app's own test-connection spec.
+const PING_HAULER_ID = '00000000-0000-0000-0000-000000000000';
+
+export type FactoringPing = {
+  ok: boolean;
+  message: string;
+};
+
+export async function pingFactoring(db: SupabaseClient): Promise<FactoringPing> {
+  const { data } = await db
+    .from('app_settings')
+    .select('key, value')
+    .in('key', [FACTORING_URL_KEY, FACTORING_KEY_KEY]);
+  const m = new Map(((data as { key: string; value: string }[]) || []).map((r) => [r.key, r.value]));
+  const savedUrl = (m.get(FACTORING_URL_KEY) || '').trim();
+  const savedKey = (m.get(FACTORING_KEY_KEY) || '').trim();
+
+  if (!savedUrl) return { ok: false, message: 'No endpoint saved yet — paste the tickets address and Save.' };
+  if (!savedKey) return { ok: false, message: 'No API key saved yet — paste the key and Save.' };
+  const url = siblingEndpoint(savedUrl, 'link-status');
+  if (!url) return { ok: false, message: 'The endpoint should end in /tickets.' };
+
+  try {
+    const res = await postToFactoring(url, savedKey, {
+      source: 'stallion-tank',
+      hauler_id: PING_HAULER_ID,
+    });
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    const bodyError = body?.error ? String(body.error) : '';
+
+    if (res.ok && body?.ok) {
+      return { ok: true, message: 'Connected — Auto 1 Funding accepted this app’s key.' };
+    }
+    if (res.status === 401) {
+      return { ok: false, message: 'Auto 1 Funding refused the key. Check it matches this app’s key setting in the funding app, and that the funding app was redeployed after adding it.' };
+    }
+    if (res.status === 400) {
+      return { ok: false, message: `Auto 1 Funding answered 400${bodyError ? ` — ${bodyError}` : ''}. The key may belong to another app (the source and key must match).` };
+    }
+    if (res.status === 503) {
+      return { ok: false, message: 'Auto 1 Funding has no partner keys set — add the key there and redeploy.' };
+    }
+    if (res.status === 404) {
+      return { ok: false, message: 'Nothing at that address — check the endpoint.' };
+    }
+    if (res.ok) {
+      return { ok: false, message: 'Reached the address, but the answer wasn’t in the agreed shape — is the URL really the funding app?' };
+    }
+    return { ok: false, message: `Auto 1 Funding answered ${res.status}${bodyError ? ` — ${bodyError}` : ''}.` };
+  } catch (err) {
+    const detail = err instanceof Error && err.name === 'AbortError'
+      ? 'timed out'
+      : (err instanceof Error ? err.message : 'network error');
+    return { ok: false, message: `Couldn’t reach Auto 1 Funding: ${detail}.` };
+  }
+}
+
 // ---- The Auto 1 Funding account link ---------------------------------------
 // Only a hauler with an approved account in the factoring app may Factor
 // Payments. The link is requested from Stallion, approved by the factoring
