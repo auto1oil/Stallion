@@ -30,6 +30,8 @@ function toDraft(o: JobOrder | null): Draft {
     job_number: v(o?.job_number),
     phase_code: v(o?.phase_code),
     job_address: v(o?.job_address),
+    load_address: v(o?.load_address),
+    unload_address: v(o?.unload_address),
     start_date: v(o?.start_date) || today,
     end_date: v(o?.end_date) || today,
     start_time: v(o?.start_time),
@@ -81,6 +83,8 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
       job_number: txt(draft.job_number),
       phase_code: txt(draft.phase_code),
       job_address: txt(draft.job_address),
+      load_address: txt(draft.load_address),
+      unload_address: txt(draft.unload_address),
       start_date: draft.start_date || null,
       end_date: draft.end_date || null,
       start_time: txt(draft.start_time),
@@ -143,6 +147,16 @@ export default function OrderForm({ order }: { order: JobOrder | null }) {
           </label>
           <label className="col-span-2 sm:col-span-3"><span className={label}>Job address</span>
             <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} className={input} />
+          </label>
+          <label className="col-span-2 sm:col-span-1"><span className={label}>Load address</span>
+            <input value={draft.load_address} onChange={(e) => set('load_address', e.target.value)} className={input} />
+            <span className="block mt-1 text-[11px] text-gray-500">Where the trucks load.</span>
+          </label>
+          <label className="col-span-2"><span className={label}>Unload address</span>
+            <input value={draft.unload_address} onChange={(e) => set('unload_address', e.target.value)} className={input} />
+            <span className="block mt-1 text-[11px] text-gray-500">
+              Where they dump. Both ride onto a dispatch as its pickup and drop-off.
+            </span>
           </label>
         </div>
       </div>

@@ -147,6 +147,8 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
     ['Phase', order.phase_code],
     ['FSR', order.fsr],
     ['Address', order.job_address ? <MapLink address={order.job_address} /> : null],
+    ['Load at', order.load_address ? <MapLink address={order.load_address} /> : null],
+    ['Unload at', order.unload_address ? <MapLink address={order.unload_address} /> : null],
     ['Runs', orderSpan(order)],
     ['Daily start', clock(order.start_time)],
     ['Daily stop', clock(order.stop_time)],
@@ -235,6 +237,7 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
                       ld.job_date,
                       ld.driver_name ? `Driver: ${ld.driver_name}` : null,
                       ld.equipment_type,
+                      ld.pickup && ld.dropoff ? `${ld.pickup} → ${ld.dropoff}` : (ld.pickup || ld.dropoff),
                       ld.rate != null
                         ? `$${Number(ld.rate).toFixed(2)}/${PER[ld.rate_unit || 'hour'] || 'hr'}`
                         : null,

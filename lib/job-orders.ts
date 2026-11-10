@@ -40,6 +40,10 @@ export type JobOrder = {
   job_number: string | null;
   phase_code: string | null;
   job_address: string | null;
+  // Where the trucks load and where they dump. The job address is the site;
+  // these two become a dispatch's pickup and drop-off.
+  load_address: string | null;
+  unload_address: string | null;
   start_date: string | null;
   end_date: string | null;
   start_time: string | null;
@@ -69,7 +73,8 @@ export type JobOrder = {
 // database and never posted.
 export const ORDER_EDITABLE_FIELDS = [
   'business_id', 'customer_number', 'job_name', 'job_number', 'phase_code',
-  'job_address', 'start_date', 'end_date', 'start_time', 'stop_time',
+  'job_address', 'load_address', 'unload_address',
+  'start_date', 'end_date', 'start_time', 'stop_time',
   'travel_hours', 'down_hours', 'rate', 'pay_rate', 'rate_unit', 'fuel_surcharge',
   'fsr', 'tonnage', 'tonnage_type', 'equipment_type', 'unit_number', 'status', 'notes',
 ] as const;

@@ -88,7 +88,10 @@ export async function POST(req: Request) {
       equipment_type: o.equipment_type,
       job_date: o.start_date,
       start_time: o.start_time,
-      dropoff: o.job_address,
+      // Where to load and where to dump. An order without the split addresses
+      // falls back to the job site as the drop-off, as it always has.
+      pickup: o.load_address || null,
+      dropoff: o.unload_address || o.job_address,
       rate: o.pay_rate,
       rate_unit: o.rate_unit,
       notes,

@@ -2705,6 +2705,11 @@ alter table public.job_orders add column if not exists pay_rate numeric(12,2);
 -- ticket so they check it against the invoice without digging.
 alter table public.job_orders add column if not exists fuel_surcharge numeric(12,2);
 
+-- Where the trucks load and where they dump. job_address stays as the job
+-- site; these two ride onto a dispatch as its pickup and drop-off.
+alter table public.job_orders add column if not exists load_address text;
+alter table public.job_orders add column if not exists unload_address text;
+
 -- Haulers no longer read the order book: it carries the customer's rate. The
 -- load they were dispatched already carries everything they need to do the
 -- job — the site, the dates, the times, and their own rate.

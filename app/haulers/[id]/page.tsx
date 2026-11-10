@@ -426,6 +426,8 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
                       job_name: picked?.job_name || load.job_name,
                       phase_code: picked?.phase_code || load.phase_code,
                       equipment_type: picked?.equipment_type || load.equipment_type,
+                      pickup: picked?.load_address || load.pickup,
+                      dropoff: picked?.unload_address || picked?.job_address || load.dropoff,
                       // The PAY rate — the load is what the hauler reads, and
                       // the customer rate must never ride along on it.
                       rate: picked?.pay_rate != null ? String(picked.pay_rate) : load.rate,
