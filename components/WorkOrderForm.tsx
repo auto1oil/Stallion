@@ -532,7 +532,9 @@ export default function WorkOrderForm({
     }
   }
 
-  const input = 'w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm';
+  // py-2, not py-1.5: this form is filled on phones in trucks, so every field
+  // gets a little more to hit.
+  const input = 'w-full px-2.5 py-2 border border-gray-300 rounded-md text-sm';
   // Order-owned fields on a hauler's ticket: shaded so it reads as "came
   // with the job", not as a broken input.
   const lockedField = `${input} bg-gray-100 text-gray-500 cursor-not-allowed`;

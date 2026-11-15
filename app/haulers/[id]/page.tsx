@@ -250,7 +250,13 @@ export default function HaulerDetailPage({ params }: { params: { id: string } })
                 <div key={k}>
                   <dt className="text-xs text-gray-500">{k}</dt>
                   <dd className={k === 'Insurance expires' && v! < today() ? 'text-red-600 font-medium' : ''}>
-                    {v}
+                    {k === 'Phone' ? (
+                      <a href={`tel:${v}`} className="text-brand-700 hover:underline">{v}</a>
+                    ) : k === 'Email' ? (
+                      <a href={`mailto:${v}`} className="text-brand-700 hover:underline">{v}</a>
+                    ) : (
+                      v
+                    )}
                     {k === 'Insurance expires' && v! < today() ? ' — expired' : ''}
                   </dd>
                 </div>

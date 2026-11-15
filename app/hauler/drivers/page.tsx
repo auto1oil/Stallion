@@ -166,7 +166,10 @@ export default function HaulerDriversPage() {
                   <span className={`font-medium ${d.active ? '' : 'text-gray-400'}`}>
                     {d.full_name || d.email}
                   </span>
-                  <span className="text-gray-500"> · {[d.email, d.phone].filter(Boolean).join(' · ')}</span>
+                  <span className="text-gray-500">
+                    {d.email && <> · <a href={`mailto:${d.email}`} className="hover:underline">{d.email}</a></>}
+                    {d.phone && <> · <a href={`tel:${d.phone}`} className="text-brand-700 hover:underline">{d.phone}</a></>}
+                  </span>
                   {!d.active && <span className="ml-2 text-[11px] text-gray-500">(deactivated)</span>}
                 </span>
                 <button

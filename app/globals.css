@@ -83,4 +83,15 @@ html:is([data-theme="dark"],[data-theme="medium"]) ::placeholder { color: var(--
 html:is([data-theme="dark"],[data-theme="medium"]) input[type="checkbox"],
 html:is([data-theme="dark"],[data-theme="medium"]) input[type="radio"] { accent-color: #B45309; }
 
+/* Field-friendly form controls on phones: 16px is the size below which iOS
+   zooms the whole page into a tapped field (then leaves it zoomed), and it
+   reads better with gloves and sunlight anyway. Desktop keeps its sizes. */
+@media (max-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 

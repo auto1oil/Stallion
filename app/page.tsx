@@ -13,15 +13,16 @@ export default async function Home() {
     .eq('id', user.id)
     .single();
 
-  if (profile?.role === 'admin' || profile?.role === 'master_admin') redirect('/admin');
+  // Everyone lands where their day's work is. Admin and office land on the
+  // tickets board (the audit queue sits on top of it); crew land on their own
+  // tickets — including a hauling company's drivers, whose nav is tickets-only.
+  if (profile?.role === 'admin' || profile?.role === 'master_admin') redirect('/work-orders');
   if (profile?.role === 'contractor') redirect('/contractor');
   if (profile?.role === 'hauler') redirect('/hauler');
   if (profile?.role === 'funder') redirect('/funder');
   if (profile?.role === 'customer') redirect('/no-access');
-  // Office reviews and invoices tickets. Labor is hourly staff, so their home
-  // is the clock. Mechanics get the full driver experience (deliveries +
-  // invoices), so they land on /driver.
   if (profile?.role === 'office') redirect('/work-orders');
+  // Labor is hourly staff, so their home is the clock.
   if (profile?.role === 'labor') redirect('/driver/hours');
-  redirect('/driver');
+  redirect('/tickets');
 }

@@ -48,12 +48,16 @@ export default function AppUpdater() {
     const onVisible = () => { if (document.visibilityState === 'visible') checkForUpdate(); };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', checkForUpdate);
+    // iOS restores a page from the back-forward cache without firing focus or
+    // visibilitychange — pageshow is the one event that always fires on resume.
+    window.addEventListener('pageshow', checkForUpdate);
     // Backstop so a long-open app still notices a deploy without a refocus.
     const timer = setInterval(checkForUpdate, 5 * 60 * 1000);
     return () => {
       cancelled = true;
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', checkForUpdate);
+      window.removeEventListener('pageshow', checkForUpdate);
       clearInterval(timer);
     };
   }, [fetchSha, checkForUpdate]);

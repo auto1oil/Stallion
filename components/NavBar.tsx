@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import NotificationBell from './NotificationBell';
 import MessageBubble from './MessageBubble';
+import InstallHint from './InstallHint';
 import { navGroupForRole, featureKey, type Role } from '@/lib/feature-catalog';
 
 const supabase = createClient();
@@ -64,15 +65,15 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     router.refresh();
   }
 
+  // The old Auto 1 delivery boards (Deliveries, Delivery Log, PO #) still
+  // exist at their URLs but are out of the daily nav — this business runs on
+  // orders and haul tickets.
   const adminLinks = [
     { href: '/work-orders/orders',    label: 'Orders' },
     { href: '/work-orders',           label: 'Tickets' },
     { href: '/haulers',               label: 'Haulers' },
-    { href: '/admin',                 label: 'Deliveries' },
-    { href: '/admin/delivery-log',    label: 'Delivery Log' },
     { href: '/admin/customers',       label: 'Customers' },
     { href: '/admin/dashboard',       label: 'Dashboard' },
-    { href: '/admin/po',              label: 'PO #' },
     { href: '/admin/hours',           label: 'Time Clock' },
     { href: '/admin/users',           label: 'Users' },
   ];
@@ -86,12 +87,11 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
     { href: '/tasks',               label: 'Tasks' },
     { href: '/reminders',           label: 'Reminders' },
   ];
-  // Field crew: fill out tickets, plus the delivery side of the business.
+  // Field crew: tickets and hours. The legacy delivery boards stay reachable
+  // at /driver and /driver/delivery-log but are out of the nav.
   const driverLinks = [
     { href: '/tickets',               label: 'My Tickets' },
     { href: '/tickets/new',           label: 'New Ticket' },
-    { href: '/driver',                label: 'Deliveries' },
-    { href: '/driver/delivery-log',   label: 'Delivery Log' },
     { href: '/driver/customers',      label: 'Customers' },
     { href: '/driver/hours',          label: 'Hours' },
     { href: '/tasks',                 label: 'Tasks' },
@@ -234,6 +234,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
           })}
         </nav>
       </div>
+      <InstallHint />
     </header>
   );
 }
