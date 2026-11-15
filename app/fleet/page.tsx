@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
+import ScanFill, { type ScanFields } from '@/components/ScanFill';
 import {
   US_STATES, currentQuarter, recentQuarters, quarterLabel, quarterRange,
   iftaByState, expiryState, type FleetVehicle, type FleetFuel, type FleetTrip,
@@ -123,6 +124,27 @@ export default function FleetPage() {
 
       {adding && (
         <div className={card}>
+          {/* One photo of the registration card fills most of this form. */}
+          <div className="mb-3">
+            <ScanFill
+              kind="registration"
+              label="Scan the registration — fill this in"
+              onFields={(f: ScanFields) => {
+                const s = (v: string | number | null) => (v == null ? null : String(v));
+                const st = s(f.plate_state)?.toUpperCase();
+                setDraft((d) => ({
+                  ...d,
+                  year: s(f.year) ?? d.year,
+                  make: s(f.make) ?? d.make,
+                  model: s(f.model) ?? d.model,
+                  vin: s(f.vin) ?? d.vin,
+                  plate: s(f.plate) ?? d.plate,
+                  plate_state: st && US_STATES.includes(st) ? st : d.plate_state,
+                  registration_expires: s(f.registration_expires) ?? d.registration_expires,
+                }));
+              }}
+            />
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <label><span className={label}>Unit #</span>
               <input value={draft.unit_number} onChange={(e) => setDraft({ ...draft, unit_number: e.target.value })} className={input} />

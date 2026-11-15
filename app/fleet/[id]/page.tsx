@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
+import ScanFill, { type ScanFields } from '@/components/ScanFill';
 import {
   US_STATES, expiryState, vehicleLabel,
   type FleetVehicle, type FleetFuel, type FleetTrip, type FleetService, type FleetDocument,
@@ -110,6 +111,14 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
 
   const canDelete = (createdBy: string | null) => isStaff || (!!me && createdBy === me);
 
+  // Merging scanned fields into a draft: a value the scanner couldn't read
+  // never wipes what's already typed.
+  const sv = (v: string | number | null) => (v == null ? null : String(v));
+  const stOf = (v: string | number | null) => {
+    const st = sv(v)?.toUpperCase();
+    return st && US_STATES.includes(st) ? st : null;
+  };
+
   const input = 'w-full px-2.5 py-2 border border-gray-300 rounded-md text-sm';
   const label = 'block text-xs font-medium text-gray-600 mb-1';
   const card = 'bg-white border border-gray-200 rounded-lg p-4';
@@ -151,6 +160,22 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
       <div className={card}>
         {editing ? (
           <>
+            <div className="mb-3">
+              <ScanFill
+                kind="registration"
+                label="Scan the registration — fill this in"
+                onFields={(f: ScanFields) => setForm((p) => ({
+                  ...p,
+                  year: sv(f.year) ?? p.year,
+                  make: sv(f.make) ?? p.make,
+                  model: sv(f.model) ?? p.model,
+                  vin: sv(f.vin) ?? p.vin,
+                  plate: sv(f.plate) ?? p.plate,
+                  plate_state: stOf(f.plate_state) ?? p.plate_state,
+                  registration_expires: sv(f.registration_expires) ?? p.registration_expires,
+                }))}
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <label><span className={label}>Unit #</span>
                 <input value={form.unit_number || ''} onChange={(e) => setForm({ ...form, unit_number: e.target.value })} className={input} />
@@ -221,6 +246,24 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
         {sectionHead('Fuel log', 'fuel', '+ Log fuel')}
         {open === 'fuel' && (
           <div className="border border-gray-200 rounded-md p-3 mb-3 bg-gray-50">
+            {/* One photo of the pump receipt fills the entry AND attaches it. */}
+            <div className="mb-3">
+              <ScanFill
+                kind="fuel"
+                label="Scan the receipt — fill this in"
+                uploadFolder="fleet"
+                onUploaded={(p) => setFuelDraft((d) => ({ ...d, receipt_path: p }))}
+                onFields={(f: ScanFields) => setFuelDraft((d) => ({
+                  ...d,
+                  filled_on: sv(f.filled_on) ?? d.filled_on,
+                  state: stOf(f.state) ?? d.state,
+                  gallons: sv(f.gallons) ?? d.gallons,
+                  total_cost: sv(f.total_cost) ?? d.total_cost,
+                  vendor: sv(f.vendor) ?? d.vendor,
+                  odometer: sv(f.odometer) ?? d.odometer,
+                }))}
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <label><span className={label}>Date</span>
                 <input type="date" value={fuelDraft.filled_on} onChange={(e) => setFuelDraft({ ...fuelDraft, filled_on: e.target.value })} className={input} />
@@ -370,6 +413,23 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
         {sectionHead('Maintenance & repairs', 'svc', '+ Log work')}
         {open === 'svc' && (
           <div className="border border-gray-200 rounded-md p-3 mb-3 bg-gray-50">
+            {/* One photo of the shop bill fills the entry AND attaches it. */}
+            <div className="mb-3">
+              <ScanFill
+                kind="service"
+                label="Scan the bill — fill this in"
+                uploadFolder="fleet"
+                onUploaded={(p) => setSvcDraft((d) => ({ ...d, receipt_path: p }))}
+                onFields={(f: ScanFields) => setSvcDraft((d) => ({
+                  ...d,
+                  service_date: sv(f.service_date) ?? d.service_date,
+                  kind: f.kind === 'repair' || f.kind === 'maintenance' ? f.kind : d.kind,
+                  description: sv(f.description) ?? d.description,
+                  cost: sv(f.cost) ?? d.cost,
+                  odometer: sv(f.odometer) ?? d.odometer,
+                }))}
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <label><span className={label}>Date</span>
                 <input type="date" value={svcDraft.service_date} onChange={(e) => setSvcDraft({ ...svcDraft, service_date: e.target.value })} className={input} />

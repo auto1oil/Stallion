@@ -36,6 +36,10 @@ export default function WorkOrderSetupPage() {
   const [factorUrl, setFactorUrl] = useState('');
   const [factorKey, setFactorKey] = useState('');
   const [savedFactor, setSavedFactor] = useState(false);
+  // Scan & fill: the Claude API key that reads registrations, receipts, and
+  // shop bills off photos. Master admin only, like the factoring key.
+  const [aiKey, setAiKey] = useState('');
+  const [savedAi, setSavedAi] = useState(false);
   // Test connection: probes the SAVED settings against the funding app.
   const [pingBusy, setPingBusy] = useState(false);
   const [ping, setPing] = useState<{ ok: boolean; message: string } | null>(null);
@@ -46,12 +50,13 @@ export default function WorkOrderSetupPage() {
       const { data } = await supabase
         .from('app_settings')
         .select('key, value')
-        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key']);
+        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key']);
       const m = new Map(((data as { key: string; value: string }[]) || []).map((r) => [r.key, r.value]));
       setItemId(m.get('work_order_qb_item_id') || '');
       setItemName(m.get('work_order_qb_item_name') || '');
       setFactorUrl(m.get('factoring_webhook_url') || '');
       setFactorKey(m.get('factoring_api_key') || '');
+      setAiKey(m.get('anthropic_api_key') || '');
       setEverSavedUrl(!!(m.get('factoring_webhook_url') || '').trim());
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -102,6 +107,15 @@ export default function WorkOrderSetupPage() {
     setSavedFactor(true);
     setEverSavedUrl(!!factorUrl.trim());
     setTimeout(() => setSavedFactor(false), 1500);
+  }
+
+  async function saveAi() {
+    setSavedAi(false);
+    await supabase.from('app_settings').upsert([
+      { key: 'anthropic_api_key', value: aiKey.trim() },
+    ], { onConflict: 'key' });
+    setSavedAi(true);
+    setTimeout(() => setSavedAi(false), 1500);
   }
 
   async function testFactoring() {
@@ -211,6 +225,32 @@ export default function WorkOrderSetupPage() {
             {ping.ok ? '✓' : '✗'} {ping.message}
           </p>
         )}
+      </div>
+      )}
+
+      {isMaster && (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-5">
+        <h2 className="font-semibold mb-1">Scan &amp; fill (AI)</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Lets the fleet pages read a photo — a registration card, a fuel
+          receipt, a shop bill — and fill the form from it. Paste a Claude API
+          key from console.anthropic.com; each scan costs a fraction of a cent
+          on it. Leave it blank and the scan buttons simply say it&apos;s not
+          set up.
+        </p>
+        <div className="grid grid-cols-1 gap-3 max-w-2xl">
+          <label className="text-xs text-gray-600">Claude API key
+            <input value={aiKey} onChange={(e) => setAiKey(e.target.value)}
+              type="password" autoComplete="off" placeholder="sk-ant-…"
+              className={`${input} w-full block mt-1`} />
+          </label>
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <button onClick={saveAi} className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium">
+            Save
+          </button>
+          {savedAi && <span className="text-xs text-emerald-700">Saved ✓</span>}
+        </div>
       </div>
       )}
 
