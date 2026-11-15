@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import TicketAttachment from '@/components/TicketAttachment';
+import BolScans from '@/components/BolScans';
 import TicketSignature from '@/components/TicketSignature';
 import {
   STATUS_LABEL, STATUS_TONE, onSiteHours, totalHours, ticketAmount,
@@ -94,6 +95,9 @@ export default function FunderTicketPage({ params }: { params: { id: string } })
       <div className="grid gap-3 sm:grid-cols-2 mb-3">
         <TicketAttachment label="Ticket photo" path={wo.ticket_photo_path} readOnly />
         <TicketAttachment label="Short ticket" path={wo.short_ticket_path} readOnly />
+      </div>
+      <div className="mb-3">
+        <BolScans paths={wo.bol_paths || []} readOnly />
       </div>
       <div className="mb-3">
         <TicketSignature path={wo.signature_path} readOnly />

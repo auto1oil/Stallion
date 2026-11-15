@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
+import BolScans from '@/components/BolScans';
 import TicketSignature from '@/components/TicketSignature';
 import LoadLines from '@/components/LoadLines';
 import CustomerPicker from '@/components/CustomerPicker';
@@ -201,6 +202,7 @@ export default function WorkOrderForm({
   const [draft, setDraft] = useState<Draft>(() => toDraft(workOrder));
   const [ticketPhoto, setTicketPhoto] = useState<string | null>(workOrder?.ticket_photo_path ?? null);
   const [shortTicket, setShortTicket] = useState<string | null>(workOrder?.short_ticket_path ?? null);
+  const [bolPaths, setBolPaths] = useState<string[]>(workOrder?.bol_paths ?? []);
   const [signature, setSignature] = useState<string | null>(workOrder?.signature_path ?? null);
   const [foremanSignature, setForemanSignature] = useState<string | null>(workOrder?.foreman_signature_path ?? null);
   // Who signed and when — typed name + stamp, saved alongside each drawing.
@@ -360,6 +362,7 @@ export default function WorkOrderForm({
       tonnage_type: draft.tonnage_type || null,
       ticket_photo_path: ticketPhoto,
       short_ticket_path: shortTicket,
+      bol_paths: bolPaths,
       signature_path: signature,
       foreman_signature_path: foremanSignature,
       signature_name: signatureSigner.name,
@@ -800,6 +803,8 @@ export default function WorkOrderForm({
           readOnly={locked}
         />
       </div>
+
+      <BolScans paths={bolPaths} onChange={setBolPaths} readOnly={locked} />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <TicketSignature

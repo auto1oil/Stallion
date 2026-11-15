@@ -105,6 +105,8 @@ export type WorkOrder = {
   tonnage_type: string | null;
   ticket_photo_path: string | null;
   short_ticket_path: string | null;
+  // Scans of the day's bills of lading — several per ticket is normal.
+  bol_paths: string[] | null;
   signature_path: string | null;
   submitted_by: string | null;
   contractor_id: string | null;
@@ -201,7 +203,7 @@ export const EDITABLE_FIELDS = [
   'foreman_signature_name', 'foreman_signature_signed_at',
   'start_at', 'stop_at', 'travel_hours', 'down_hours', 'rate', 'rate_unit',
   'tonnage', 'tonnage_type', 'ticket_photo_path', 'short_ticket_path',
-  'signature_path', 'contractor_id', 'payment_method', 'notes',
+  'bol_paths', 'signature_path', 'contractor_id', 'payment_method', 'notes',
 ] as const;
 
 // On a hauler's ticket that came from a dispatched job, these are the ORDER's

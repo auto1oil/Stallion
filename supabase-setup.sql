@@ -2029,6 +2029,10 @@ alter table public.work_orders add column if not exists foreman_signature_signed
 -- QuickBooks invoice and the factoring hand-off.
 alter table public.work_orders add column if not exists ticket_pdf_path text;
 
+-- Bill-of-lading scans (work-tickets bucket). A ticket carries several — one
+-- BOL per load is a normal day — so this is a list, not a single slot.
+alter table public.work_orders add column if not exists bol_paths text[] default '{}';
+
 create index if not exists work_orders_status_idx     on public.work_orders(status, job_date desc);
 create index if not exists work_orders_submitter_idx  on public.work_orders(submitted_by, created_at desc);
 create index if not exists work_orders_contractor_idx on public.work_orders(contractor_id, created_at desc);

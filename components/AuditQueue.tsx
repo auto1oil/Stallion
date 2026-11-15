@@ -53,6 +53,7 @@ const COLUMNS: Column[] = [
   { key: 'bills', label: 'Bills', get: (w) => `${billableQuantity(w).toFixed(2)} ${billableUnit(w)}` },
   { key: 'amount', label: 'Amount', get: (w) => `$${ticketAmount(w).toFixed(2)}` },
   { key: 'photo', label: 'Photo', get: (w) => (w.ticket_photo_path ? 'yes' : 'MISSING') },
+  { key: 'bols', label: 'BOLs', get: (w) => String(w.bol_paths?.length || 0) },
   { key: 'foreman', label: 'Foreman', get: (w) => (w.foreman_signature_path ? 'signed' : 'MISSING') },
 ];
 
@@ -87,6 +88,7 @@ export default function AuditQueue() {
   const [orderFacts, setOrderFacts] = useState<Record<string, OrderFacts>>({});
   const [bizNames, setBizNames] = useState<Record<string, string>>({});
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [bolUrls, setBolUrls] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     const [{ data: tickets }, { data: setting }] = await Promise.all([
@@ -133,6 +135,22 @@ export default function AuditQueue() {
     supabase.storage.from('work-tickets')
       .createSignedUrl(w.ticket_photo_path, 600)
       .then(({ data }) => { if (!stale) setPhotoUrl(data?.signedUrl ?? null); });
+    return () => { stale = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
+
+  // Same deal for the BOL scans — fresh links on expand, images only (a PDF
+  // BOL still counts in the checklist, it just doesn't thumbnail).
+  useEffect(() => {
+    setBolUrls([]);
+    const w = rows.find((r) => r.id === expandedId);
+    const paths = (w?.bol_paths || []).filter((p) => !/\.pdf$/i.test(p));
+    if (paths.length === 0) return;
+    let stale = false;
+    Promise.all(paths.map((p) =>
+      supabase.storage.from('work-tickets').createSignedUrl(p, 600)
+        .then(({ data }) => data?.signedUrl || null),
+    )).then((us) => { if (!stale) setBolUrls(us.filter(Boolean) as string[]); });
     return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedId]);
@@ -282,6 +300,19 @@ export default function AuditQueue() {
                 <p className="mt-2 text-xs text-gray-400">Loading the paper-ticket photo…</p>
               ) : (
                 <p className="mt-2 text-xs text-red-600">No photo of the paper ticket.</p>
+              )}
+              {(w.bol_paths?.length || 0) > 0 && (
+                <div className="mt-2">
+                  <div className="text-xs text-gray-500 mb-1">BOL scans ({w.bol_paths!.length})</div>
+                  <div className="flex flex-wrap gap-2">
+                    {bolUrls.length > 0 ? bolUrls.map((u, i) => (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img key={u} src={u} alt={`BOL ${i + 1}`} className="h-24 w-auto rounded border border-gray-200" />
+                    )) : (
+                      <span className="text-xs text-gray-400">Loading…</span>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>

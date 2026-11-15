@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import TicketAttachment from '@/components/TicketAttachment';
+import BolScans from '@/components/BolScans';
 import TicketSignature from '@/components/TicketSignature';
 import {
   STATUS_LABEL, STATUS_TONE, onSiteHours, totalHours, ticketAmount,
@@ -115,6 +116,9 @@ export default function ContractorTicketPage({ params }: { params: { id: string 
           onChange={saveShortTicket}
           readOnly={busy === 'upload'}
         />
+      </div>
+      <div className="mb-3">
+        <BolScans paths={wo.bol_paths || []} readOnly />
       </div>
       <div className="mb-3">
         <TicketSignature path={wo.signature_path} readOnly />
