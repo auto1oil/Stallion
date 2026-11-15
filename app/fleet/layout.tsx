@@ -1,6 +1,7 @@
-// The Fleet tab fills everything under the nav with the One Glovebox fleet
-// panel, so this layout is the full-height variant: no page gutter, no max
-// width — the frame gets the whole space.
+// Stallion's own fleet — trucks, fuel, trips, service, documents. The fleet
+// is the company's iron: hauling companies manage their trucks on their own
+// side, so hauler-side logins are bounced out before the page loads (RLS
+// would show them nothing anyway).
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase-server';
@@ -20,18 +21,17 @@ export default async function FleetLayout({ children }: { children: React.ReactN
     .single();
   if (!profile) redirect('/login');
   if (profile.role === 'customer') redirect('/no-access');
-  // The fleet program is Stallion's own trucks. Hauling companies run their
-  // own fleets, so their people stay on their side of the app.
   if (profile.role === 'hauler') redirect('/hauler');
   if (profile.hauler_id) redirect('/tickets');
+  if (profile.role === 'funder') redirect('/funder');
 
   const group = navGroupForRole(profile.role);
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-gray-50">
+    <div className="min-h-screen bg-gray-50">
       <NavBar role={profile.role as Role} email={profile.email} />
       {group && <FeatureGuard group={group} />}
-      <main className="min-h-0 flex-1">{children}</main>
+      <main className="max-w-5xl mx-auto px-4 py-6">{children}</main>
     </div>
   );
 }

@@ -3035,3 +3035,194 @@ create policy "login_events master admin read" on public.login_events
 -- ==========================================================================
 -- DONE
 -- ==========================================================================
+
+-- ==========================================================================
+-- 49. Fleet — Stallion's own trucks: fuel, trips (IFTA), service, documents
+-- ==========================================================================
+-- The company fleet, self-contained and starting empty. Drivers log fuel,
+-- trips and repairs from the phone; the office owns the truck list. A
+-- hauling company's trucks live in hauler_equipment — this is Stallion's
+-- own iron, and hauler-side logins have no access at all.
+
+-- Who may see and write fleet records: Stallion's own people (no hauler_id),
+-- in the roles that touch trucks.
+create or replace function public.is_fleet_user()
+returns boolean
+language sql stable security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid()
+      and hauler_id is null
+      and role in ('admin','master_admin','office','driver','mechanic','labor')
+  );
+$$;
+
+create table if not exists public.fleet_vehicles (
+  id                   uuid primary key default gen_random_uuid(),
+  unit_number          text not null,
+  year                 text,
+  make                 text,
+  model                text,
+  vin                  text,
+  plate                text,
+  plate_state          text,
+  registration_expires date,
+  insurance_expires    date,
+  active               boolean not null default true,
+  notes                text,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+create table if not exists public.fleet_fuel (
+  id           uuid primary key default gen_random_uuid(),
+  vehicle_id   uuid not null references public.fleet_vehicles(id) on delete cascade,
+  filled_on    date not null default current_date,
+  odometer     numeric(12,1),
+  gallons      numeric(10,3),
+  total_cost   numeric(12,2),
+  -- Two letters. IFTA wants fuel split by the state it was bought in.
+  state        text,
+  vendor       text,
+  -- work-tickets bucket, under "<uid>/fleet/".
+  receipt_path text,
+  notes        text,
+  created_by   uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.fleet_trips (
+  id         uuid primary key default gen_random_uuid(),
+  vehicle_id uuid not null references public.fleet_vehicles(id) on delete cascade,
+  trip_date  date not null default current_date,
+  from_place text,
+  to_place   text,
+  -- Miles are logged per state — a trip that crosses a line is two rows.
+  state      text,
+  miles      numeric(10,1),
+  notes      text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.fleet_service (
+  id           uuid primary key default gen_random_uuid(),
+  vehicle_id   uuid not null references public.fleet_vehicles(id) on delete cascade,
+  service_date date not null default current_date,
+  kind         text not null default 'maintenance' check (kind in ('maintenance','repair')),
+  odometer     numeric(12,1),
+  description  text,
+  cost         numeric(12,2),
+  receipt_path text,
+  notes        text,
+  created_by   uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.fleet_documents (
+  id         uuid primary key default gen_random_uuid(),
+  -- Null vehicle = a company-wide document (IFTA license, insurance binder).
+  vehicle_id uuid references public.fleet_vehicles(id) on delete cascade,
+  label      text not null,
+  file_path  text,
+  expires_on date,
+  notes      text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists fleet_fuel_vehicle_idx      on public.fleet_fuel(vehicle_id, filled_on desc);
+create index if not exists fleet_fuel_date_idx         on public.fleet_fuel(filled_on desc);
+create index if not exists fleet_trips_vehicle_idx     on public.fleet_trips(vehicle_id, trip_date desc);
+create index if not exists fleet_trips_date_idx        on public.fleet_trips(trip_date desc);
+create index if not exists fleet_service_vehicle_idx   on public.fleet_service(vehicle_id, service_date desc);
+create index if not exists fleet_documents_vehicle_idx on public.fleet_documents(vehicle_id);
+
+drop trigger if exists trg_fleet_vehicles_touch on public.fleet_vehicles;
+create trigger trg_fleet_vehicles_touch before update on public.fleet_vehicles
+  for each row execute function public.touch_updated_at();
+
+alter table public.fleet_vehicles  enable row level security;
+alter table public.fleet_fuel      enable row level security;
+alter table public.fleet_trips     enable row level security;
+alter table public.fleet_service   enable row level security;
+alter table public.fleet_documents enable row level security;
+
+grant select, insert, update, delete on
+  public.fleet_vehicles, public.fleet_fuel, public.fleet_trips,
+  public.fleet_service, public.fleet_documents
+to authenticated;
+
+-- The truck list is the office's; everyone on the fleet reads it.
+drop policy if exists "fleet vehicles read" on public.fleet_vehicles;
+create policy "fleet vehicles read" on public.fleet_vehicles
+  for select to authenticated
+  using (public.is_fleet_user());
+
+drop policy if exists "fleet vehicles manage" on public.fleet_vehicles;
+create policy "fleet vehicles manage" on public.fleet_vehicles
+  for all to authenticated
+  using (public.is_admin() or public.has_role(array['office']))
+  with check (public.is_admin() or public.has_role(array['office']));
+
+-- Entries (fuel, trips, service, documents): anyone on the fleet reads all
+-- and adds their own; a row is edited or removed by whoever wrote it, or by
+-- admin/office.
+drop policy if exists "fleet fuel read" on public.fleet_fuel;
+create policy "fleet fuel read" on public.fleet_fuel
+  for select to authenticated using (public.is_fleet_user());
+drop policy if exists "fleet fuel write" on public.fleet_fuel;
+create policy "fleet fuel write" on public.fleet_fuel
+  for all to authenticated
+  using (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])))
+  with check (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])));
+
+drop policy if exists "fleet trips read" on public.fleet_trips;
+create policy "fleet trips read" on public.fleet_trips
+  for select to authenticated using (public.is_fleet_user());
+drop policy if exists "fleet trips write" on public.fleet_trips;
+create policy "fleet trips write" on public.fleet_trips
+  for all to authenticated
+  using (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])))
+  with check (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])));
+
+drop policy if exists "fleet service read" on public.fleet_service;
+create policy "fleet service read" on public.fleet_service
+  for select to authenticated using (public.is_fleet_user());
+drop policy if exists "fleet service write" on public.fleet_service;
+create policy "fleet service write" on public.fleet_service
+  for all to authenticated
+  using (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])))
+  with check (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])));
+
+drop policy if exists "fleet documents read" on public.fleet_documents;
+create policy "fleet documents read" on public.fleet_documents
+  for select to authenticated using (public.is_fleet_user());
+drop policy if exists "fleet documents write" on public.fleet_documents;
+create policy "fleet documents write" on public.fleet_documents
+  for all to authenticated
+  using (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])))
+  with check (public.is_fleet_user()
+    and (created_by = auth.uid() or public.is_admin() or public.has_role(array['office'])));
+
+-- Fleet receipts and documents live in the work-tickets bucket under
+-- "<uid>/fleet/", so the normal own-folder upload policy already covers the
+-- write. This read policy lets anyone on the fleet open them — a fuel
+-- receipt isn't private to the driver who pumped it.
+drop policy if exists "wt fleet read" on storage.objects;
+create policy "wt fleet read" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'work-tickets'
+    and (storage.foldername(name))[2] = 'fleet'
+    and public.is_fleet_user()
+  );

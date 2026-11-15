@@ -18,12 +18,16 @@ export default function TicketAttachment({
   path,
   onChange,
   readOnly = false,
+  folder,
 }: {
   label: string;
   hint?: string;
   path: string | null;
   onChange?: (path: string | null) => void;
   readOnly?: boolean;
+  // Subfolder under the uploader's own folder — e.g. 'fleet' puts files at
+  // "<uid>/fleet/…", which the fleet-wide storage read policy keys on.
+  folder?: string;
 }) {
   const supabase = createClient();
   const [url, setUrl] = useState<string | null>(null);
@@ -46,7 +50,7 @@ export default function TicketAttachment({
       if (!user) throw new Error('You are signed out — sign in again.');
       const small = await maybeCompressImage(file);
       const ext = (small.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-      const key = `${user.id}/${Date.now()}-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`;
+      const key = `${user.id}/${folder ? `${folder}/` : ''}${Date.now()}-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`;
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(key, small, { upsert: false });
       if (upErr) throw upErr;
       onChange?.(key);
