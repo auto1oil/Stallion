@@ -40,6 +40,9 @@ export default function WorkOrderSetupPage() {
   // shop bills off photos. Master admin only, like the factoring key.
   const [aiKey, setAiKey] = useState('');
   const [savedAi, setSavedAi] = useState(false);
+  // Trip mileage: the Google Maps key behind "Calculate miles by state".
+  const [mapsKey, setMapsKey] = useState('');
+  const [savedMaps, setSavedMaps] = useState(false);
   // Test connection: probes the SAVED settings against the funding app.
   const [pingBusy, setPingBusy] = useState(false);
   const [ping, setPing] = useState<{ ok: boolean; message: string } | null>(null);
@@ -50,13 +53,14 @@ export default function WorkOrderSetupPage() {
       const { data } = await supabase
         .from('app_settings')
         .select('key, value')
-        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key']);
+        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key']);
       const m = new Map(((data as { key: string; value: string }[]) || []).map((r) => [r.key, r.value]));
       setItemId(m.get('work_order_qb_item_id') || '');
       setItemName(m.get('work_order_qb_item_name') || '');
       setFactorUrl(m.get('factoring_webhook_url') || '');
       setFactorKey(m.get('factoring_api_key') || '');
       setAiKey(m.get('anthropic_api_key') || '');
+      setMapsKey(m.get('google_maps_api_key') || '');
       setEverSavedUrl(!!(m.get('factoring_webhook_url') || '').trim());
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -116,6 +120,15 @@ export default function WorkOrderSetupPage() {
     ], { onConflict: 'key' });
     setSavedAi(true);
     setTimeout(() => setSavedAi(false), 1500);
+  }
+
+  async function saveMaps() {
+    setSavedMaps(false);
+    await supabase.from('app_settings').upsert([
+      { key: 'google_maps_api_key', value: mapsKey.trim() },
+    ], { onConflict: 'key' });
+    setSavedMaps(true);
+    setTimeout(() => setSavedMaps(false), 1500);
   }
 
   async function testFactoring() {
@@ -250,6 +263,33 @@ export default function WorkOrderSetupPage() {
             Save
           </button>
           {savedAi && <span className="text-xs text-emerald-700">Saved ✓</span>}
+        </div>
+      </div>
+      )}
+
+      {isMaster && (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-5">
+        <h2 className="font-semibold mb-1">Trip mileage (Google Maps)</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Powers &quot;Calculate miles by state&quot; on the fleet trip form:
+          Google finds the route, the app splits the miles by state for IFTA.
+          Paste a Google Maps API key (console.cloud.google.com, with the
+          Routes API enabled) — 10,000 routes a month are free, about half a
+          cent each after. Leave it blank and the button simply says it&apos;s
+          not set up.
+        </p>
+        <div className="grid grid-cols-1 gap-3 max-w-2xl">
+          <label className="text-xs text-gray-600">Google Maps API key
+            <input value={mapsKey} onChange={(e) => setMapsKey(e.target.value)}
+              type="password" autoComplete="off" placeholder="AIza…"
+              className={`${input} w-full block mt-1`} />
+          </label>
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <button onClick={saveMaps} className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium">
+            Save
+          </button>
+          {savedMaps && <span className="text-xs text-emerald-700">Saved ✓</span>}
         </div>
       </div>
       )}

@@ -34,6 +34,10 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
   const today = () => new Date().toISOString().slice(0, 10);
   const [fuelDraft, setFuelDraft] = useState({ filled_on: today(), state: 'UT', odometer: '', gallons: '', total_cost: '', vendor: '', receipt_path: null as string | null });
   const [tripDraft, setTripDraft] = useState({ trip_date: today(), from_place: '', to_place: '', state: 'UT', miles: '' });
+  // Auto-mileage: Google gives the route, our code splits it by state.
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeErr, setRouteErr] = useState('');
+  const [routeCalc, setRouteCalc] = useState<{ rows: { state: string; miles: number }[]; total: number } | null>(null);
   const [svcDraft, setSvcDraft] = useState({ service_date: today(), kind: 'maintenance', odometer: '', description: '', cost: '', receipt_path: null as string | null });
   const [docDraft, setDocDraft] = useState({ label: '', expires_on: '', file_path: null as string | null });
 
@@ -80,6 +84,52 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
     const { error: err } = await supabase.from(table).delete().eq('id', id);
     setBusy('');
     if (err) { setError(err.message); return; }
+    refresh();
+  }
+
+  async function calcRoute() {
+    setRouteBusy(true); setRouteErr(''); setRouteCalc(null);
+    try {
+      const res = await fetch('/api/fleet/route-miles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: tripDraft.from_place, to: tripDraft.to_place }),
+      });
+      const json = await res.json();
+      if (!json.ok) { setRouteErr(json.error || 'Could not get the route.'); return; }
+      const rows = (json.rows as { state: string; miles: number }[]) || [];
+      setRouteCalc({ rows, total: json.totalMiles as number });
+      // One state: the normal form fields are simply filled in.
+      if (rows.length === 1) {
+        setTripDraft((d) => ({ ...d, state: rows[0].state, miles: String(rows[0].miles) }));
+      }
+    } catch {
+      setRouteErr('Network error — try again.');
+    } finally {
+      setRouteBusy(false);
+    }
+  }
+
+  // A route that crosses state lines logs as one trip row per state, in one go.
+  async function logSplit() {
+    if (!routeCalc) return;
+    setBusy('fleet_trips'); setError('');
+    const { error: err } = await supabase.from('fleet_trips').insert(
+      routeCalc.rows.map((r) => ({
+        vehicle_id: params.id,
+        trip_date: tripDraft.trip_date,
+        from_place: txt(tripDraft.from_place),
+        to_place: txt(tripDraft.to_place),
+        state: r.state === '??' ? null : r.state,
+        miles: r.miles,
+        created_by: me,
+      })),
+    );
+    setBusy('');
+    if (err) { setError(err.message); return; }
+    setRouteCalc(null);
+    setTripDraft({ trip_date: today(), from_place: '', to_place: '', state: tripDraft.state, miles: '' });
+    setOpen('');
     refresh();
   }
 
@@ -369,6 +419,45 @@ export default function FleetVehiclePage({ params }: { params: { id: string } })
               <label><span className={label}>Miles</span>
                 <input type="number" step="0.1" inputMode="decimal" value={tripDraft.miles} onChange={(e) => setTripDraft({ ...tripDraft, miles: e.target.value })} className={input} />
               </label>
+            </div>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={calcRoute}
+                disabled={routeBusy || !tripDraft.from_place.trim() || !tripDraft.to_place.trim()}
+                title={tripDraft.from_place.trim() && tripDraft.to_place.trim() ? undefined : 'Fill in From and To first'}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-brand-300 bg-brand-50 text-brand-700 font-medium hover:bg-brand-100 disabled:opacity-50"
+              >
+                <span aria-hidden>🗺️</span>
+                {routeBusy ? 'Getting the route…' : 'Calculate miles by state'}
+              </button>
+              {routeErr && <p className="text-xs text-red-600 mt-1">{routeErr}</p>}
+              {routeCalc && routeCalc.rows.length > 1 && (
+                <div className="mt-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm">
+                  <div className="text-xs text-gray-500 mb-1">
+                    {routeCalc.total.toFixed(1)} miles, split by state — one entry each:
+                  </div>
+                  {routeCalc.rows.map((r) => (
+                    <div key={r.state} className="flex justify-between tabular-nums">
+                      <span>{r.state === '??' ? 'Outside the US' : r.state}</span>
+                      <span>{r.miles.toFixed(1)} mi</span>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={logSplit}
+                    disabled={busy === 'fleet_trips'}
+                    className={`mt-2 ${addBtn}`}
+                  >
+                    {busy === 'fleet_trips' ? 'Saving…' : `Log ${routeCalc.rows.length} entries`}
+                  </button>
+                </div>
+              )}
+              {routeCalc && routeCalc.rows.length === 1 && (
+                <p className="text-xs text-emerald-700 mt-1">
+                  {routeCalc.total.toFixed(1)} miles, all in {routeCalc.rows[0].state} — filled into the form. Hit Log trip to save.
+                </p>
+              )}
             </div>
             <button
               disabled={busy === 'fleet_trips'}

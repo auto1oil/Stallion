@@ -1041,17 +1041,17 @@ drop policy if exists "Admins manage app_settings" on public.app_settings;
 create policy "Admins manage app_settings" on public.app_settings
   for all to authenticated
   using (public.is_admin()
-    and key not in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key'))
+    and key not in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key'))
   with check (public.is_admin()
-    and key not in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key'));
+    and key not in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key'));
 
 drop policy if exists "Master admin manages factoring settings" on public.app_settings;
 create policy "Master admin manages factoring settings" on public.app_settings
   for all to authenticated
   using (public.is_master_admin()
-    and key in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key'))
+    and key in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key'))
   with check (public.is_master_admin()
-    and key in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key'));
+    and key in ('factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key'));
 
 -- QuickBooks token-refresh audit trail is stored as a JSON array in
 -- app_settings (key 'qb_token_log') by the server — no dedicated table needed.
