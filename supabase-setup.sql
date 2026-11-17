@@ -2512,45 +2512,45 @@ declare
   last_stamp  timestamptz;
   last_kind   text;
 begin
-  update public.work_orders w
+  update public.work_orders
      set loads_count = (
-           select count(*) from public.work_order_loads l
-            where l.work_order_id = wo_id
-              and (l.load_in_at is not null or coalesce(l.tons, 0) > 0)),
+           select count(*) from public.work_order_loads
+            where work_order_id = wo_id
+              and (load_in_at is not null or sign(coalesce(tons, 0)) = 1)),
          loads_tons = (
-           select coalesce(sum(coalesce(l.tons, 0)), 0)
-             from public.work_order_loads l
-            where l.work_order_id = wo_id)
-   where w.id = wo_id;
+           select coalesce(sum(coalesce(tons, 0)), 0)
+             from public.work_order_loads
+            where work_order_id = wo_id)
+   where id = wo_id;
 
-  select min(s.at), max(s.at) into first_stamp, last_stamp
-    from public.work_order_loads l
+  select min(stamp), max(stamp) into first_stamp, last_stamp
+    from public.work_order_loads
     cross join lateral (values
-      (l.load_in_at, 'load_in'), (l.load_out_at, 'load_out'),
-      (l.unload_in_at, 'unload_in'), (l.unload_out_at, 'unload_out')
-    ) as s(at, kind)
-   where l.work_order_id = wo_id and s.at is not null;
+      (load_in_at, 'load_in'), (load_out_at, 'load_out'),
+      (unload_in_at, 'unload_in'), (unload_out_at, 'unload_out')
+    ) as s(stamp, kind)
+   where work_order_id = wo_id and stamp is not null;
 
   if last_stamp is not null then
-    select s.kind into last_kind
-      from public.work_order_loads l
+    select kind into last_kind
+      from public.work_order_loads
       cross join lateral (values
-        (l.load_in_at, 'load_in'), (l.load_out_at, 'load_out'),
-        (l.unload_in_at, 'unload_in'), (l.unload_out_at, 'unload_out')
-      ) as s(at, kind)
-     where l.work_order_id = wo_id and s.at = last_stamp
-     order by case s.kind when 'unload_out' then 4 when 'unload_in' then 3
-                          when 'load_out' then 2 else 1 end desc
+        (load_in_at, 'load_in'), (load_out_at, 'load_out'),
+        (unload_in_at, 'unload_in'), (unload_out_at, 'unload_out')
+      ) as s(stamp, kind)
+     where work_order_id = wo_id and stamp = last_stamp
+     order by case kind when 'unload_out' then 4 when 'unload_in' then 3
+                        when 'load_out' then 2 else 1 end desc
      limit 1;
 
-    update public.work_orders w
+    update public.work_orders
        set start_at = first_stamp,
            stop_at = last_stamp,
            sign_out_at = last_stamp,
            signed_out_state = case when last_kind in ('load_out', 'unload_in')
                                    then 'loaded' else 'empty' end
-     where w.id = wo_id
-       and w.status in ('draft', 'submitted', 'rejected');
+     where id = wo_id
+       and status in ('draft', 'submitted', 'rejected');
   end if;
   return null;
 end;
