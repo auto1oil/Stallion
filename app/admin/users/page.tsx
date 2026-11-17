@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase-browser';
 import AddUserPanel from '@/components/AddUserPanel';
 import SignInHistory from '@/components/SignInHistory';
+import UsageReport from '@/components/UsageReport';
 
 type Role = 'admin' | 'driver' | 'contractor' | 'funder' | 'hauler' | 'master_admin' | 'customer' | 'office' | 'mechanic' | 'labor';
 
@@ -292,6 +293,7 @@ export default function UsersPage() {
           <AddUserPanel onAdded={load} />
         </div>
         <div className="mt-3">
+          <UsageReport />
           <SignInHistory />
         </div>
       </div>

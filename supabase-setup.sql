@@ -3226,3 +3226,34 @@ create policy "wt fleet read" on storage.objects
     and (storage.foldername(name))[2] = 'fleet'
     and public.is_fleet_user()
   );
+
+-- ==========================================================================
+-- 50. Usage — how long each person actually has the app open
+-- ==========================================================================
+-- The app pings home once a minute while it is open and visible on someone's
+-- screen. Pings land here as one row per person per day: consecutive pings
+-- close together add their gap to the day's seconds; a long gap (phone in
+-- the pocket, app closed) adds nothing. Written only by the server with the
+-- service role; read only by the master admin, same as sign-in history.
+-- Days are Mountain Time, matched in the ping route and the report.
+
+create table if not exists public.usage_days (
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  day          date not null,
+  seconds      integer not null default 0,
+  pings        integer not null default 0,
+  last_ping_at timestamptz,
+  primary key (user_id, day)
+);
+
+create index if not exists usage_days_day_idx on public.usage_days (day desc);
+
+alter table public.usage_days enable row level security;
+grant select on public.usage_days to authenticated;
+
+-- Master admin reads; nobody else sees anything, and no client writes at all
+-- (the ping route writes with the service role).
+drop policy if exists "usage master read" on public.usage_days;
+create policy "usage master read" on public.usage_days
+  for select to authenticated
+  using (public.is_master_admin());

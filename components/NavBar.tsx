@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase-browser';
 import NotificationBell from './NotificationBell';
 import MessageBubble from './MessageBubble';
 import InstallHint from './InstallHint';
+import UsagePing from './UsagePing';
 import { navGroupForRole, featureKey, type Role } from '@/lib/feature-catalog';
 
 const supabase = createClient();
@@ -238,6 +239,7 @@ export default function NavBar({ role, email }: { role: Role; email: string }) {
         </nav>
       </div>
       <InstallHint />
+      <UsagePing />
     </header>
   );
 }
