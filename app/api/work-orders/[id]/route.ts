@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
-import { pickEditable, ORDER_LOCKED_FIELDS } from '@/lib/work-orders';
+import { pickEditable, ORDER_LOCKED_FIELDS, stampWindow } from '@/lib/work-orders';
 import { withOrderMismatch } from '@/lib/order-match';
 import { requestBillOfSale, checkFactoringLink, sendPendingTicket } from '@/lib/factoring';
 
@@ -81,6 +81,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (patch.payment_method === 'factor' && actor?.hauler_id) {
     const link = await checkFactoringLink(createAdminClient(), actor.hauler_id);
     if (link.status !== 'linked') patch.payment_method = 'standard';
+  }
+
+  // Once a ticket has load stamps, its day is the stamps: the first tap starts
+  // it and the last tap ends it. Recomputed here so a save can never post
+  // different times than the stamps say — hours are billed off these.
+  if (before && ['draft', 'rejected', 'submitted'].includes(before.status)) {
+    const { data: stampRows } = await supabase
+      .from('work_order_loads')
+      .select('load_in_at, load_out_at, unload_in_at, unload_out_at')
+      .eq('work_order_id', params.id);
+    const day = stampWindow((stampRows as { load_in_at: string | null; load_out_at: string | null; unload_in_at: string | null; unload_out_at: string | null }[]) || []);
+    if (day.start && day.stop) {
+      patch.start_at = day.start;
+      patch.stop_at = day.stop;
+      patch.sign_out_at = day.stop;
+      patch.signed_out_state = day.signedOut;
+    }
   }
 
   const finalPatch = await withOrderMismatch(supabase, patch, before);

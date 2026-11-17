@@ -9,7 +9,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-export type ScanKind = 'registration' | 'fuel' | 'service';
+export type ScanKind = 'registration' | 'fuel' | 'service' | 'bol';
 
 export const SCAN_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
 export type ScanMediaType = (typeof SCAN_MEDIA_TYPES)[number];
@@ -38,6 +38,15 @@ const PROMPTS: Record<ScanKind, string> = {
     + 'kind is "repair" if something broken was fixed, otherwise "maintenance". '
     + 'description is one short line: the shop name and what was done. '
     + 'cost is the final total as a number. Any value you cannot read is null.',
+  bol:
+    'This photo is a bill of lading, scale ticket, or weight ticket for one truckload of '
+    + 'material (dirt, gravel, fill, asphalt, rock). '
+    + 'Read it and answer with ONLY this JSON, nothing else:\n'
+    + '{"ticket_number": "...", "tons": 0, "material": "...", "date": "YYYY-MM-DD"}\n'
+    + 'ticket_number is the ticket, BOL, or scale ticket number printed on it. '
+    + 'tons is the NET weight in US tons as a number: if only pounds are shown, divide the '
+    + 'net pounds by 2000; if metric, convert to US tons. Never use the gross or tare weight. '
+    + 'Any value you cannot read is null.',
 };
 
 // Only these keys come back to the client, per kind — whatever else the model
@@ -46,6 +55,7 @@ const FIELDS: Record<ScanKind, string[]> = {
   registration: ['year', 'make', 'model', 'vin', 'plate', 'plate_state', 'registration_expires'],
   fuel: ['filled_on', 'gallons', 'total_cost', 'vendor', 'state', 'odometer'],
   service: ['service_date', 'kind', 'description', 'cost', 'odometer'],
+  bol: ['ticket_number', 'tons', 'material', 'date'],
 };
 
 export async function scanImage(

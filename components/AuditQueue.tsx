@@ -24,7 +24,11 @@ type OrderFacts = Pick<JobOrder,
 // disagrees with its order, or it has no order to be checked against, or it
 // has nothing to bill. Those are the ones worth a person's time.
 
-type Column = { key: string; label: string; get: (w: WorkOrder) => string };
+// A queue row carries its loads' BOL photos alongside the ticket's own.
+type QueueRow = WorkOrder & { load_bols?: string[] };
+const allBols = (w: QueueRow) => [...(w.bol_paths || []), ...(w.load_bols || [])];
+
+type Column = { key: string; label: string; get: (w: QueueRow) => string };
 
 // Everything the office can choose to see at a glance. Deliberately more than
 // anyone needs at once — the chooser is how it gets cut down.
@@ -52,8 +56,8 @@ const COLUMNS: Column[] = [
   { key: 'rate', label: 'Rate', get: (w) => (w.rate == null ? '' : `$${Number(w.rate).toFixed(2)}`) },
   { key: 'bills', label: 'Bills', get: (w) => `${billableQuantity(w).toFixed(2)} ${billableUnit(w)}` },
   { key: 'amount', label: 'Amount', get: (w) => `$${ticketAmount(w).toFixed(2)}` },
-  { key: 'photo', label: 'Photo', get: (w) => (w.ticket_photo_path ? 'yes' : 'MISSING') },
-  { key: 'bols', label: 'BOLs', get: (w) => String(w.bol_paths?.length || 0) },
+  { key: 'photo', label: 'Photo', get: (w) => (w.ticket_photo_path ? 'yes' : allBols(w).length ? 'BOLs' : 'MISSING') },
+  { key: 'bols', label: 'BOLs', get: (w) => String(allBols(w).length) },
   { key: 'foreman', label: 'Foreman', get: (w) => (w.foreman_signature_path ? 'signed' : 'MISSING') },
 ];
 
@@ -61,10 +65,12 @@ const DEFAULT_KEYS = ['job_date', 'driver_name', 'trucking_company', 'unit_numbe
   'loads_count', 'loads_tons', 'total_hours', 'amount'];
 
 // Why a ticket can't be passed without someone looking. Null means it can.
-function needsEyes(w: WorkOrder): string | null {
+function needsEyes(w: QueueRow): string | null {
   if (w.order_mismatch && !w.mismatch_cleared_at) return w.order_mismatch;
   if (!w.order_id) return 'no order — nothing to check it against';
-  if (!w.ticket_photo_path) return 'no photo of the paper ticket';
+  // The driver's ticket has no paper — its proof is the BOL photos. Either
+  // one will do; neither means nobody can check the numbers.
+  if (!w.ticket_photo_path && allBols(w).length === 0) return 'no BOL or ticket photo';
   // The foreman signing is what closes the day on site. Without it there is
   // nobody on the customer's side who agreed to these hours.
   if (!w.foreman_signature_path) return 'the job foreman never signed it';
@@ -74,7 +80,7 @@ function needsEyes(w: WorkOrder): string | null {
 
 export default function AuditQueue() {
   const supabase = createClient();
-  const [rows, setRows] = useState<WorkOrder[]>([]);
+  const [rows, setRows] = useState<QueueRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [keys, setKeys] = useState<string[]>(DEFAULT_KEYS);
   const [picking, setPicking] = useState(false);
@@ -97,7 +103,23 @@ export default function AuditQueue() {
       supabase.from('app_settings').select('value').eq('key', 'audit_fields').maybeSingle(),
     ]);
     const list = (tickets as WorkOrder[]) || [];
-    setRows(list);
+    // Each ticket's per-load BOL photos, for the evidence check and the
+    // verify panel.
+    let withBols: QueueRow[] = list;
+    if (list.length > 0) {
+      const { data: lb } = await supabase
+        .from('work_order_loads')
+        .select('work_order_id, bol_path')
+        .in('work_order_id', list.map((w) => w.id))
+        .not('bol_path', 'is', null)
+        .order('load_no');
+      const byWo: Record<string, string[]> = {};
+      for (const r of (lb as { work_order_id: string; bol_path: string }[]) || []) {
+        (byWo[r.work_order_id] ||= []).push(r.bol_path);
+      }
+      withBols = list.map((w) => ({ ...w, load_bols: byWo[w.id] || [] }));
+    }
+    setRows(withBols);
     const saved = (setting as { value: string } | null)?.value;
     if (saved) setKeys(saved.split(',').map((k) => k.trim()).filter(Boolean));
 
@@ -144,7 +166,7 @@ export default function AuditQueue() {
   useEffect(() => {
     setBolUrls([]);
     const w = rows.find((r) => r.id === expandedId);
-    const paths = (w?.bol_paths || []).filter((p) => !/\.pdf$/i.test(p));
+    const paths = (w ? allBols(w) : []).filter((p) => !/\.pdf$/i.test(p));
     if (paths.length === 0) return;
     let stale = false;
     Promise.all(paths.map((p) =>
@@ -298,12 +320,12 @@ export default function AuditQueue() {
                 <img src={photoUrl} alt="Paper ticket" className="mt-2 max-h-64 w-auto rounded border border-gray-200" />
               ) : w.ticket_photo_path ? (
                 <p className="mt-2 text-xs text-gray-400">Loading the paper-ticket photo…</p>
-              ) : (
-                <p className="mt-2 text-xs text-red-600">No photo of the paper ticket.</p>
-              )}
-              {(w.bol_paths?.length || 0) > 0 && (
+              ) : allBols(w).length === 0 ? (
+                <p className="mt-2 text-xs text-red-600">No BOL or paper-ticket photo.</p>
+              ) : null}
+              {allBols(w).length > 0 && (
                 <div className="mt-2">
-                  <div className="text-xs text-gray-500 mb-1">BOL scans ({w.bol_paths!.length})</div>
+                  <div className="text-xs text-gray-500 mb-1">BOL photos ({allBols(w).length})</div>
                   <div className="flex flex-wrap gap-2">
                     {bolUrls.length > 0 ? bolUrls.map((u, i) => (
                       /* eslint-disable-next-line @next/next/no-img-element */

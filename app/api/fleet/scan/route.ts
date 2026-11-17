@@ -12,23 +12,31 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-const KINDS: ScanKind[] = ['registration', 'fuel', 'service'];
+const FLEET_KINDS: ScanKind[] = ['registration', 'fuel', 'service'];
+const KINDS: ScanKind[] = [...FLEET_KINDS, 'bol'];
 const FLEET_ROLES = ['admin', 'master_admin', 'office', 'driver', 'mechanic', 'labor'];
+// BOLs are read off haul tickets, which hauling companies' drivers fill too.
+const BOL_ROLES = ['admin', 'master_admin', 'office', 'driver', 'hauler', 'mechanic', 'labor'];
 
 export async function POST(req: Request) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
 
-  // Same circle as the fleet tables' RLS: Stallion's own people.
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const kind = String(body.kind || '') as ScanKind;
+
   const { data: actor } = await supabase
     .from('profiles').select('role, hauler_id').eq('id', user.id).single();
-  if (!actor || actor.hauler_id || !FLEET_ROLES.includes(actor.role)) {
+  // Fleet paperwork: the same circle as the fleet tables' RLS — Stallion's
+  // own people. A BOL: anyone who files haul tickets.
+  const allowed = !!actor && (FLEET_KINDS.includes(kind)
+    ? !actor.hauler_id && FLEET_ROLES.includes(actor.role)
+    : BOL_ROLES.includes(actor.role));
+  if (!allowed) {
     return NextResponse.json({ ok: false, error: 'not allowed' }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const kind = String(body.kind || '') as ScanKind;
   const image = typeof body.image === 'string' ? body.image : '';
   const mediaType = String(body.media_type || '') as ScanMediaType;
   if (!KINDS.includes(kind) || !image || !SCAN_MEDIA_TYPES.includes(mediaType)) {

@@ -27,15 +27,25 @@ export async function startHaulTicket(
   // loads, so the accepter and the driver are the same person.
   const driverId = load.driver_id || userId;
   try {
-    const [{ data: company }, { data: unit }, { data: driver }] = await Promise.all([
+    const [{ data: company }, { data: unit }, { data: driver }, { data: lastTicket }] = await Promise.all([
       db.from('haulers').select('name').eq('id', load.hauler_id).maybeSingle(),
       load.equipment_id
         ? db.from('hauler_equipment').select('unit_number, equipment_type')
             .eq('id', load.equipment_id).maybeSingle()
         : Promise.resolve({ data: null }),
       db.from('profiles').select('full_name, email').eq('id', driverId).maybeSingle(),
+      // The truck this driver ran last time. Most drivers keep the same
+      // truck, so when the load doesn't name a unit this is the best guess —
+      // and the driver can correct it on the ticket.
+      db.from('work_orders').select('unit_number, truck_type')
+        .eq('assigned_to', driverId).not('unit_number', 'is', null)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     const named = driver as { full_name: string | null; email: string } | null;
+    const last = lastTicket as { unit_number: string | null; truck_type: string | null } | null;
+    const unitNumber = (unit as { unit_number: string | null } | null)?.unit_number ?? last?.unit_number ?? null;
+    // The truck type only carries over with the same truck.
+    const truckType = last && last.unit_number === unitNumber ? last.truck_type : null;
 
     const { data: wo, error } = await db
       .from('work_orders')
@@ -48,7 +58,8 @@ export async function startHaulTicket(
         trucking_company: (company as { name: string } | null)?.name ?? null,
         assigned_to: driverId,
         driver_name: named?.full_name || named?.email || actor.full_name || actor.email || null,
-        unit_number: (unit as { unit_number: string | null } | null)?.unit_number ?? null,
+        unit_number: unitNumber,
+        truck_type: truckType,
         equipment_type:
           (unit as { equipment_type: string | null } | null)?.equipment_type ?? load.equipment_type,
         job_number: load.job_number,

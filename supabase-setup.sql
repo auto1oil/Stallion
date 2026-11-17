@@ -2483,6 +2483,10 @@ create table if not exists public.work_order_loads (
 create index if not exists work_order_loads_wo_idx
   on public.work_order_loads (work_order_id, load_no);
 
+-- The BOL for that load — a photo the driver takes on the spot, in the
+-- work-tickets bucket. Read by the scanner to fill the ticket # and tons.
+alter table public.work_order_loads add column if not exists bol_path text;
+
 drop trigger if exists trg_work_order_loads_touch on public.work_order_loads;
 create trigger trg_work_order_loads_touch before update on public.work_order_loads
   for each row execute function public.touch_updated_at();
@@ -2491,12 +2495,22 @@ create trigger trg_work_order_loads_touch before update on public.work_order_loa
 -- security definer because the writer often can't update work_orders itself —
 -- a hauler owns its load lines but not the ticket's columns, and once the
 -- office approves a ticket nobody but the office can touch it. The function
--- only ever writes the two computed columns of the ticket that owns the line,
--- and getting a line in there at all already had to pass the policies above.
+-- only ever writes columns computed from the ticket's own lines, and getting
+-- a line in there at all already had to pass the policies above.
+--
+-- The day's times come off the stamps too: the first tap starts the day and
+-- the last tap ends it (normally Load 1's Load in and the last load's Unload
+-- out), and the signed-out state follows the last tap. Only while the ticket
+-- is still being worked — an approved ticket's hours are what got billed. A
+-- ticket with no stamps at all keeps whatever times were typed. The app's
+-- save route applies the same rule (stampWindow in lib/work-orders.ts).
 create or replace function public.sync_work_order_load_totals()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
   wo_id uuid := coalesce(new.work_order_id, old.work_order_id);
+  first_stamp timestamptz;
+  last_stamp  timestamptz;
+  last_kind   text;
 begin
   update public.work_orders w
      set loads_count = (
@@ -2508,6 +2522,36 @@ begin
              from public.work_order_loads l
             where l.work_order_id = wo_id)
    where w.id = wo_id;
+
+  select min(s.at), max(s.at) into first_stamp, last_stamp
+    from public.work_order_loads l
+    cross join lateral (values
+      (l.load_in_at, 'load_in'), (l.load_out_at, 'load_out'),
+      (l.unload_in_at, 'unload_in'), (l.unload_out_at, 'unload_out')
+    ) as s(at, kind)
+   where l.work_order_id = wo_id and s.at is not null;
+
+  if last_stamp is not null then
+    select s.kind into last_kind
+      from public.work_order_loads l
+      cross join lateral (values
+        (l.load_in_at, 'load_in'), (l.load_out_at, 'load_out'),
+        (l.unload_in_at, 'unload_in'), (l.unload_out_at, 'unload_out')
+      ) as s(at, kind)
+     where l.work_order_id = wo_id and s.at = last_stamp
+     order by case s.kind when 'unload_out' then 4 when 'unload_in' then 3
+                          when 'load_out' then 2 else 1 end desc
+     limit 1;
+
+    update public.work_orders w
+       set start_at = first_stamp,
+           stop_at = last_stamp,
+           sign_out_at = last_stamp,
+           signed_out_state = case when last_kind in ('load_out', 'unload_in')
+                                   then 'loaded' else 'empty' end
+     where w.id = wo_id
+       and w.status in ('draft', 'submitted', 'rejected');
+  end if;
   return null;
 end;
 $$;

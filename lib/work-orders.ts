@@ -164,6 +164,8 @@ export type WorkOrderLoad = {
   unload_out_lng: number | null;
   unload_out_accuracy: number | null;
   tons: number | null;
+  // Photo of this load's bill of lading, in the work-tickets bucket.
+  bol_path: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -187,6 +189,43 @@ export function totalLoadTons(loads: Pick<WorkOrderLoad, 'tons'>[]): number {
 // is not a load that ran.
 export function countLoads(loads: Pick<WorkOrderLoad, 'load_in_at' | 'tons'>[]): number {
   return loads.filter((l) => l.load_in_at || Number(l.tons || 0) > 0).length;
+}
+
+export type StampWindow = {
+  start: string | null;
+  stop: string | null;
+  lastKey: LoadStampKey | null;
+  signedOut: 'loaded' | 'empty' | null;
+};
+
+// The day off the load stamps: the first tap anywhere starts it, the last tap
+// ends it — normally Load 1's Load in and the last load's Unload out, so the
+// final haul to the dump is part of the day. Signed out loaded or empty
+// follows whichever stamp came last. The database trigger on
+// work_order_loads applies the same rule as each stamp lands.
+export function stampWindow(
+  loads: Partial<Pick<WorkOrderLoad, 'load_in_at' | 'load_out_at' | 'unload_in_at' | 'unload_out_at'>>[],
+): StampWindow {
+  let start: string | null = null;
+  let stop: string | null = null;
+  let lastKey: LoadStampKey | null = null;
+  let startMs = Infinity;
+  let stopMs = -Infinity;
+  for (const l of loads) {
+    for (const s of LOAD_STAMPS) {
+      const at = l[`${s.key}_at` as const] as string | null | undefined;
+      if (!at) continue;
+      const ms = new Date(at).getTime();
+      if (Number.isNaN(ms)) continue;
+      if (ms < startMs) { startMs = ms; start = at; }
+      // >= so a tie goes to the later stamp in the cycle.
+      if (ms >= stopMs) { stopMs = ms; stop = at; lastKey = s.key; }
+    }
+  }
+  const signedOut = lastKey
+    ? (lastKey === 'load_out' || lastKey === 'unload_in' ? 'loaded' : 'empty')
+    : null;
+  return { start, stop, lastKey, signedOut };
 }
 
 // The columns a crew member (or the office) may set on a ticket. Everything

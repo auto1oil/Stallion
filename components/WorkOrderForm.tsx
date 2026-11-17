@@ -1,12 +1,12 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import TicketAttachment from '@/components/TicketAttachment';
 import BolScans from '@/components/BolScans';
 import TicketSignature from '@/components/TicketSignature';
-import LoadLines from '@/components/LoadLines';
+import LoadLines, { type LoadTotals } from '@/components/LoadLines';
 import CustomerPicker from '@/components/CustomerPicker';
 import HaulerOnTicket from '@/components/HaulerOnTicket';
 import { orderLabel, ticketDefaultsFrom, type JobOrder } from '@/lib/job-orders';
@@ -43,6 +43,28 @@ const EQUIPMENT_TYPES = [
   'Belly Dump', 'End Dump', 'Side Dump', 'Side Dump Double', 'Super Dump',
   'Water Truck', 'Lowboy', 'Excavator', 'Loader', 'Dozer', 'Blade', 'Skid Steer',
 ];
+
+// Who gets the full ticket form. Everyone else filling a ticket — a driver,
+// a hauling company, a mechanic — gets the driver's ticket: everything the
+// app already knows is filled in, and they only add the BOL photos, their
+// down and extra time, and the superintendent's signature.
+const STAFF_ROLES = ['admin', 'master_admin', 'office'];
+const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+// An address that opens the Maps app — Apple Maps on iPhones, Google Maps
+// everywhere else, from the same link.
+function MapLink({ address }: { address: string }) {
+  return (
+    <a
+      href={`https://maps.apple.com/?q=${encodeURIComponent(address)}`}
+      target="_blank"
+      rel="noreferrer"
+      className="text-brand-700 hover:underline"
+    >
+      {address} <span aria-hidden>📍</span>
+    </a>
+  );
+}
 
 function toDraft(wo: Partial<WorkOrder> | null): Draft {
   const v = (x: unknown) => (x === null || x === undefined ? '' : String(x));
@@ -221,12 +243,19 @@ export default function WorkOrderForm({
   // A hauler filling their own ticket is owed the order's pay rate; the
   // customer rate lives on the order, which haulers cannot read at all.
   const [isHauler, setIsHauler] = useState(false);
+  // The signed-in person's role — decides driver's ticket vs full form.
+  // Null until known, so the wrong layout never flashes up first.
+  const [role, setRole] = useState<string | null>(null);
+  // A job with no loads (a loader, a water truck) types its start and stop.
+  const [manualTimes, setManualTimes] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   // Rolled up from the load lines so the live total matches what the server
   // will bill — it recomputes from the same rows before invoicing.
-  const [loadTotals, setLoadTotals] = useState<{ loads: number; tons: number }>({ loads: 0, tons: 0 });
+  const [loadTotals, setLoadTotals] = useState<LoadTotals>({
+    loads: 0, tons: 0, start: null, stop: null, signedOut: null,
+  });
   // The factoring app's bill of sale for a Factor Payment ticket. The hauler
   // signs it over there; completing the ticket requires the signature.
   const [bos, setBos] = useState<{ url: string; accepted: boolean; accepted_by: string | null; accepted_at: string | null } | null>(null);
@@ -245,6 +274,9 @@ export default function WorkOrderForm({
   // the job, address, phase, and their pay rate came with the load. The
   // server strips these from a hauler's save too — this is the visible half.
   const orderLocked = locked || (isHauler && !!draft.order_id);
+  // The driver's ticket vs the office's full form. The office approving off
+  // the Tickets board always gets the full form.
+  const driverMode = !canApprove && role !== null && !STAFF_ROLES.includes(role);
 
   const set = (k: string, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -279,23 +311,68 @@ export default function WorkOrderForm({
       setRates((rateRows as Rate[]) || []);
       setOrders((orderRows as JobOrder[]) || []);
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Anyone on a hauling company's side — the company login OR one of
-        // its drivers — gets the hauler treatment: no order book, job fields
-        // locked, pay-side rate only.
-        const { data: me } = await supabase.from('profiles').select('role, hauler_id').eq('id', user.id).single();
-        const haulerSide = me?.role === 'hauler' || !!me?.hauler_id;
-        setIsHauler(haulerSide);
-        if (haulerSide) {
-          try {
-            const res = await fetch('/api/haulers/factoring-link', { cache: 'no-store' });
-            const json = await res.json();
-            setFactorAllowed(json.ok && json.status === 'linked');
-          } catch { /* stays hidden — no answer is not a yes */ }
-        }
+      if (!user) { setRole(''); return; }
+      // Anyone on a hauling company's side — the company login OR one of
+      // its drivers — gets the hauler treatment: no order book, job fields
+      // locked, pay-side rate only.
+      const { data: me } = await supabase
+        .from('profiles').select('role, hauler_id, full_name, email').eq('id', user.id).single();
+      const haulerSide = me?.role === 'hauler' || !!me?.hauler_id;
+      setIsHauler(haulerSide);
+
+      // A brand-new ticket starts with everything the app already knows
+      // about whoever is filling it: their name, the truck they ran last
+      // time, and their company. Not for the office — they file for others.
+      if (!workOrder && !STAFF_ROLES.includes(me?.role || '')) {
+        const [{ data: last }, { data: company }] = await Promise.all([
+          supabase.from('work_orders')
+            .select('unit_number, truck_type, equipment_type, trucking_company')
+            .or(`submitted_by.eq.${user.id},assigned_to.eq.${user.id}`)
+            .not('unit_number', 'is', null)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+          me?.hauler_id
+            ? supabase.from('haulers').select('name').eq('id', me.hauler_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+        const prev = last as { unit_number: string | null; truck_type: string | null; equipment_type: string | null; trucking_company: string | null } | null;
+        const companyName = (company as { name: string } | null)?.name || null;
+        setDraft((d) => ({
+          ...d,
+          driver_name: d.driver_name || me?.full_name || me?.email || '',
+          unit_number: d.unit_number || prev?.unit_number || '',
+          truck_type: d.truck_type || prev?.truck_type || '',
+          equipment_type: d.equipment_type || prev?.equipment_type || '',
+          trucking_company: d.trucking_company || companyName || prev?.trucking_company || '',
+        }));
+      }
+      setRole(me?.role ?? '');
+
+      if (haulerSide) {
+        try {
+          const res = await fetch('/api/haulers/factoring-link', { cache: 'no-store' });
+          const json = await res.json();
+          setFactorAllowed(json.ok && json.status === 'linked');
+        } catch { /* stays hidden — no answer is not a yes */ }
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
+
+  // The day's times follow the load stamps: first tap starts it, last tap
+  // ends it, and signed out loaded/empty follows the last tap. The server
+  // applies the same rule on save, so the screen and the bill agree.
+  useEffect(() => {
+    if (!loadTotals.start || !loadTotals.stop) return;
+    const start = toLocalInput(loadTotals.start);
+    const stop = toLocalInput(loadTotals.stop);
+    const signedOut = loadTotals.signedOut;
+    setDraft((d) => (
+      d.start_at === start && d.stop_at === stop && d.sign_out_at === stop
+        && (!signedOut || d.signed_out_state === signedOut)
+        ? d
+        : { ...d, start_at: start, stop_at: stop, sign_out_at: stop, signed_out_state: signedOut || d.signed_out_state }
+    ));
+  }, [loadTotals.start, loadTotals.stop, loadTotals.signedOut]);
 
   // The agreed rate for the job/phase typed above, so the crew doesn't have to
   // remember it. Exact phase match wins; a job-wide rate is the fallback.
@@ -469,7 +546,19 @@ export default function WorkOrderForm({
   }
 
   async function save(submit: boolean) {
-    if (submit) {
+    if (submit && driverMode) {
+      // The driver's ticket has no paper to photograph — the app's ticket is
+      // the ticket. What it needs: a job, a day (stamps or typed times), and
+      // the superintendent's signature with their name.
+      if (!draft.order_id && !draft.job_number.trim() && !draft.job_name.trim()) {
+        setError('Pick the job this ticket is for before finishing the day.'); return;
+      }
+      if (!draft.start_at || !draft.stop_at) {
+        setError('Tap your load times — or type the start and stop — before finishing the day.'); return;
+      }
+      if (!foremanSignature) { setError('The superintendent needs to sign the ticket before it goes in.'); return; }
+      if (!foremanSigner.name) { setError('The superintendent’s typed name is missing — clear the signature and have them sign again with their name.'); return; }
+    } else if (submit) {
       if (!draft.job_number.trim()) { setError('Enter the job number before completing the ticket.'); return; }
       if (!draft.start_at || !draft.stop_at) { setError('Enter the start and stop times before completing the ticket.'); return; }
       if (!ticketPhoto) { setError('Attach a photo of the paper ticket before completing it.'); return; }
@@ -493,7 +582,7 @@ export default function WorkOrderForm({
         setError(json.error || 'Could not save the ticket.');
         return;
       }
-      setMsg(submit ? 'Completed — it\u2019s with the office now.' : 'Saved.');
+      setMsg(submit && driverMode ? 'Day finished — it’s with the office now.' : submit ? 'Completed — it\u2019s with the office now.' : 'Saved.');
       onSaved?.(json.work_order as WorkOrder);
       if (!id) router.replace(`/tickets/${json.work_order.id}`);
       else router.refresh();
@@ -551,6 +640,424 @@ export default function WorkOrderForm({
     && workOrder?.bos_reset_at
     && (!bos.accepted_at || new Date(bos.accepted_at) <= new Date(workOrder.bos_reset_at))
   );
+
+  // Once a ticket has load stamps, its start and stop are the stamps.
+  const stampTimed = !!loadTotals.start;
+
+  // ---- Pieces both layouts share --------------------------------------------
+
+  // The sixteen load lines. They hang off the saved ticket, so on a brand new
+  // one they appear as soon as it's been saved once as a draft.
+  const loadsBlock = id ? (
+    <LoadLines
+      workOrderId={id}
+      locked={locked}
+      jobDate={draft.job_date}
+      onTotalsChange={setLoadTotals}
+    />
+  ) : driverMode ? (
+    <div className="bg-white border border-dashed border-gray-300 rounded-lg p-4 text-sm text-gray-600">
+      <strong className="block text-gray-900 mb-1">Loads</strong>
+      Start the ticket and the load buttons open up — one tap for each in and out.
+      <button
+        type="button"
+        onClick={() => save(false)}
+        disabled={!!busy}
+        className="mt-3 block w-full px-4 py-2.5 text-sm rounded-md bg-brand-700 text-white font-semibold hover:bg-brand-900 disabled:opacity-50"
+      >
+        {busy === 'save' ? 'Starting…' : 'Start today’s ticket'}
+      </button>
+    </div>
+  ) : (
+    <div className="bg-white border border-dashed border-gray-300 rounded-lg p-4 text-sm text-gray-600">
+      <strong className="block text-gray-900 mb-1">Loads</strong>
+      Save this ticket as a draft and the sixteen load lines open up, with
+      one-tap in and out times for each load.
+    </div>
+  );
+
+  // How the hauler wants paying. Factor hands the approved ticket to the
+  // factoring service to fund; standard waits on Stallion's pay run.
+  const paymentBlock = isHauler ? (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-1">
+        How do you want this ticket paid?
+      </h2>
+      <p className="text-xs text-gray-500 mb-3">
+        Factor Payment sends the approved ticket straight to the factoring
+        service to fund. Standard Pay stays on the normal pay run.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {/* Factor Payment only exists once the company's Auto 1 Funding
+            account is linked — no account, no button. */}
+        {(factorAllowed
+          ? ([['standard', 'Standard Pay'], ['factor', 'Factor Payment']] as const)
+          : ([['standard', 'Standard Pay']] as const)
+        ).map(([value, title]) => (
+          <button
+            key={value}
+            type="button"
+            disabled={locked}
+            onClick={() => set('payment_method', value)}
+            className={`px-3 py-2.5 rounded-md border text-sm font-medium disabled:opacity-50 ${
+              (draft.payment_method || 'standard') === value
+                ? 'border-brand-700 bg-brand-700 text-white'
+                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {title}
+          </button>
+        ))}
+      </div>
+      {!factorAllowed && (
+        <p className="mt-2 text-[11px] text-gray-500">
+          Factor Payment shows up here once your Auto 1 Funding account is
+          linked and approved — request it under{' '}
+          <Link href="/hauler/company" className="text-brand-700 hover:underline">Company</Link>.
+        </p>
+      )}
+
+      {/* Factor Payment comes with a bill of sale to sign at the
+          factoring app. Completing the ticket requires the signature. */}
+      {draft.payment_method === 'factor' && (
+        !id ? (
+          <p className="mt-3 text-xs text-gray-500">
+            Save the draft once and the bill of sale to sign appears here.
+          </p>
+        ) : bos?.accepted && !bosStale ? (
+          <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Bill of sale signed
+            {bos.accepted_by ? ` by ${bos.accepted_by}` : ''}
+            {bos.accepted_at ? ` · ${new Date(bos.accepted_at).toLocaleString()}` : ''}.
+          </p>
+        ) : (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+            <p className="text-sm text-amber-900">
+              {bosStale
+                ? 'The office sent this ticket back, so the amounts changed. The refreshed bill of sale needs to be signed again before completing.'
+                : 'The factoring company’s bill of sale needs your signature before this ticket can be completed. It reflects the last saved numbers — save the draft again if you just changed times or loads.'}
+            </p>
+            <div className="flex gap-2 mt-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => loadBos(true)}
+                disabled={bosBusy}
+                className="px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+              >
+                {bosBusy ? 'Working…' : 'Open & sign the bill of sale'}
+              </button>
+              <button
+                type="button"
+                onClick={() => loadBos(false)}
+                disabled={bosBusy}
+                className="px-3 py-1.5 text-xs rounded-md border border-gray-300 hover:bg-white disabled:opacity-50"
+              >
+                I signed it — check again
+              </button>
+            </div>
+            {bosError && <p className="text-xs text-red-600 mt-1.5">{bosError}</p>}
+          </div>
+        )
+      )}
+    </div>
+  ) : null;
+
+  // Once the foreman has signed with their name, the ticket is worth handing
+  // over — the share sheet does text, email, AirDrop.
+  const shareBlock = id && foremanSignature && foremanSigner.name ? (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
+      <span className="text-sm text-gray-700">
+        Ticket signed by <strong>{foremanSigner.name}</strong> — send them a copy.
+      </span>
+      <button
+        type="button"
+        onClick={shareTicket}
+        disabled={busy === 'share'}
+        className="px-4 py-2 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
+      >
+        {busy === 'share' ? 'Building the PDF…' : 'Share ticket (text · email · AirDrop)'}
+      </button>
+    </div>
+  ) : null;
+
+  // ---- The driver's ticket ----------------------------------------------------
+  // What the app knows is printed, not asked for: the job and its addresses,
+  // the driver, the truck, the date, and the day's start and end (the first
+  // and last load tap). The driver's part is the taps themselves, a BOL photo
+  // per load, any down or extra time, and the superintendent's signature.
+  function driverTicket() {
+    const clockLocal = (local: string) =>
+      local ? new Date(local).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    const dow = (() => {
+      const [y, m, d] = (draft.job_date || '').split('-').map(Number);
+      return y && m && d ? new Date(y, m - 1, d).getDay() : -1;
+    })();
+    // A dispatched load's address arrives as "pickup → drop-off".
+    const [loadAt, unloadAt] = draft.job_address.includes(' → ')
+      ? draft.job_address.split(' → ')
+      : [null, null];
+    const siteAddress = unloadAt || (!loadAt ? draft.job_address : '');
+    const jobKnown = !!draft.order_id || !!workOrder?.hauler_load_id;
+    const truckHours = onSiteHours(preview.start_at, preview.stop_at);
+    const facts = ([
+      ['Job', draft.job_name || null],
+      ['Job #', [draft.job_number, draft.phase_code ? `Phase ${draft.phase_code}` : null].filter(Boolean).join(' · ') || null],
+      ['Customer #', draft.customer_number || null],
+      ['Load at', loadAt ? <MapLink address={loadAt} /> : null],
+      [loadAt ? 'Unload at' : 'Job address', siteAddress ? <MapLink address={siteAddress} /> : null],
+      ['Material', draft.material || null],
+    ] as [string, ReactNode][]).filter(([, v]) => v);
+    const smallInput = 'w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm text-right tabular-nums';
+
+    return (
+      <div className="space-y-4">
+        {/* The ticket header: date, job, driver, truck, and the day. */}
+        <div className="bg-white border-2 border-gray-900 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Haul ticket</div>
+              {draft.ticket_number && (
+                <div className="text-lg font-bold text-accent-400 leading-tight">{draft.ticket_number}</div>
+              )}
+              {draft.trucking_company && <div className="text-xs text-gray-500">{draft.trucking_company}</div>}
+            </div>
+            <input
+              type="date"
+              value={draft.job_date}
+              onChange={(e) => set('job_date', e.target.value)}
+              disabled={locked}
+              aria-label="Date"
+              className="text-sm font-semibold text-right bg-transparent border-0 p-0"
+            />
+          </div>
+          <div className="mt-2 flex justify-between text-[11px] font-semibold text-gray-400">
+            {DAYS.map((d, i) => (
+              <span
+                key={d}
+                className={i === dow ? 'rounded-full border-2 border-gray-900 px-1.5 text-gray-900' : 'px-1.5 py-0.5'}
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            {!jobKnown && !isHauler && (
+              <label className="block mb-2">
+                <span className={label}>Job (order)</span>
+                <select value={draft.order_id} onChange={(e) => applyOrder(e.target.value)} disabled={locked} className={input}>
+                  <option value="">— Pick the job —</option>
+                  {orders.map((o) => <option key={o.id} value={o.id}>{orderLabel(o)}</option>)}
+                </select>
+              </label>
+            )}
+            {!jobKnown && (
+              <div className="grid grid-cols-2 gap-2">
+                <label><span className={label}>Job #</span>
+                  <input value={draft.job_number} onChange={(e) => set('job_number', e.target.value)} disabled={locked} className={input} />
+                </label>
+                <label><span className={label}>Job name</span>
+                  <input value={draft.job_name} onChange={(e) => set('job_name', e.target.value)} disabled={locked} className={input} />
+                </label>
+                <label className="col-span-2"><span className={label}>Job address</span>
+                  <input value={draft.job_address} onChange={(e) => set('job_address', e.target.value)} disabled={locked} className={input} />
+                </label>
+              </div>
+            )}
+            {jobKnown && (
+              facts.length > 0 ? (
+                <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1 text-sm">
+                  {facts.map(([k, v]) => (
+                    <Fragment key={k}>
+                      <dt className="text-gray-500">{k}</dt>
+                      <dd className="min-w-0 break-words">{v}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-gray-500">This ticket is on the job dispatch sent you.</p>
+              )
+            )}
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="text-sm">
+              <span className="text-gray-500">Driver </span>
+              {workOrder?.driver_name
+                ? <strong>{draft.driver_name}</strong>
+                : (
+                  <input
+                    value={draft.driver_name}
+                    onChange={(e) => set('driver_name', e.target.value)}
+                    disabled={locked}
+                    placeholder="Your name"
+                    className={`${input} mt-1`}
+                  />
+                )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <label><span className={label}>Truck #</span>
+                <input value={draft.unit_number} onChange={(e) => set('unit_number', e.target.value)} disabled={locked} className={input} />
+              </label>
+              <label><span className={label}>Type of truck</span>
+                <select value={draft.truck_type} onChange={(e) => set('truck_type', e.target.value)} disabled={locked} className={input}>
+                  <option value="">—</option>
+                  {TRUCK_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              {TRUCK_TYPES_WITH_TONS.includes(draft.truck_type) && (
+                <label className="col-span-2"><span className={label}>{draft.truck_type} tons</span>
+                  <input type="number" step="0.01" min="0" inputMode="decimal" value={draft.truck_type_tons}
+                    onChange={(e) => set('truck_type_tons', e.target.value)} disabled={locked} className={input} />
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* The day: first tap to last tap. */}
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <div className="rounded-md border border-gray-200 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Start</div>
+              <div className="text-lg font-semibold tabular-nums leading-tight">
+                {draft.start_at
+                  ? clockLocal(draft.start_at)
+                  : <span className="text-sm font-medium text-amber-700">Your first Load in</span>}
+              </div>
+            </div>
+            <div className="rounded-md border border-gray-200 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">End</div>
+              <div className="text-lg font-semibold tabular-nums leading-tight">
+                {draft.stop_at && draft.stop_at !== draft.start_at
+                  ? clockLocal(draft.stop_at)
+                  : <span className="text-sm font-medium text-gray-500">Your last tap</span>}
+              </div>
+            </div>
+          </div>
+          {!stampTimed && id && !locked && (
+            manualTimes ? (
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <TimeWheel label="Start" value={draft.start_at} onChange={(v) => set('start_at', v)}
+                  disabled={locked} defaultDate={draft.job_date} defaultMeridiem="AM" />
+                <TimeWheel label="Stop" value={draft.stop_at} onChange={(v) => set('stop_at', v)}
+                  disabled={locked} defaultDate={draft.job_date} defaultMeridiem="PM" />
+              </div>
+            ) : (
+              <button type="button" onClick={() => setManualTimes(true)} className="mt-2 text-[11px] text-brand-700 hover:underline">
+                No loads on this job? Type the start and stop instead
+              </button>
+            )
+          )}
+        </div>
+
+        {loadsBlock}
+
+        {/* The day added up. Down and extra time are the driver's to enter. */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="space-y-2.5 text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="text-gray-600">Total loads</span>
+              <strong className="tabular-nums">{loadTotals.loads} · {loadTotals.tons.toFixed(2)} tons</strong>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-gray-600">Truck hours</span>
+              <span className="tabular-nums text-right">
+                <strong>{truckHours.toFixed(2)}</strong>
+                {draft.start_at && draft.stop_at && draft.stop_at !== draft.start_at && (
+                  <span className="text-gray-500"> ({clockLocal(draft.start_at)} – {clockLocal(draft.stop_at)})</span>
+                )}
+              </span>
+            </div>
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="text-gray-600">Down time (h)</span>
+                <span className="block text-[11px] text-gray-400">held up at the pit or the job</span>
+              </span>
+              <input type="number" step="0.25" min="0" inputMode="decimal" placeholder="0"
+                value={draft.down_hours} onChange={(e) => set('down_hours', e.target.value)}
+                disabled={locked} className={smallInput} />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="text-gray-600">Extra time (h)</span>
+                <span className="block text-[11px] text-gray-400">travel or other time outside the loads</span>
+              </span>
+              <input type="number" step="0.25" min="0" inputMode="decimal" placeholder="0"
+                value={draft.travel_hours} onChange={(e) => set('travel_hours', e.target.value)}
+                disabled={locked} className={smallInput} />
+            </label>
+            <div className="flex justify-between gap-3 pt-2 border-t border-gray-100">
+              <span className="font-medium">Total hours</span>
+              <strong className="tabular-nums">{hours.toFixed(2)}</strong>
+            </div>
+            <div className="flex justify-between gap-3 text-gray-600">
+              <span>Bills</span>
+              <span className="tabular-nums">
+                {billableQuantity(preview, previewLoads).toFixed(2)} {unit} = <strong className="text-gray-900">${amount.toFixed(2)}</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <label><span className={label}>Notes</span>
+            <textarea rows={2} value={draft.notes} onChange={(e) => set('notes', e.target.value)}
+              disabled={locked} placeholder="Waits at the pit, scale down, detours…" className={input} />
+          </label>
+        </div>
+
+        {paymentBlock}
+
+        <TicketSignature
+          path={foremanSignature}
+          signerName={foremanSigner.name}
+          signedAt={foremanSigner.at}
+          onChange={setForemanSignature}
+          onSigned={(name, at) => setForemanSigner({ name, at })}
+          readOnly={locked}
+          label="Superintendent’s signature"
+          hint="The superintendent types their name and signs at the end of the day."
+        />
+
+        {shareBlock}
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+
+        {!locked && id && (
+          <div className="flex gap-2 pb-8">
+            <button
+              onClick={() => save(false)}
+              disabled={!!busy}
+              className="px-4 py-3 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            >
+              {busy === 'save' ? 'Saving…' : 'Save'}
+            </button>
+            {(status === 'draft' || status === 'rejected') && (
+              <button
+                onClick={() => save(true)}
+                disabled={!!busy}
+                className="flex-1 px-4 py-3 text-sm bg-gray-900 text-white rounded-md hover:bg-black disabled:opacity-50 font-semibold"
+              >
+                {busy === 'submit'
+                  ? 'Sending…'
+                  : status === 'rejected' ? '🏁 Fix and send back' : '🏁 Finish day — send to the office'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Until we know who's filling the ticket, don't guess at a layout.
+  if (!canApprove && role === null) {
+    return <p className="text-sm text-gray-500">Loading…</p>;
+  }
+
+  if (driverMode) {
+    return driverTicket();
+  }
 
   return (
     <div className="space-y-4">
@@ -678,9 +1185,15 @@ export default function WorkOrderForm({
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Time &amp; amounts</h2>
         <div className="grid grid-cols-2 gap-3">
           <TimeWheel label="Start" value={draft.start_at} onChange={(v) => set('start_at', v)}
-            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="AM" />
+            disabled={locked || stampTimed} defaultDate={draft.job_date} defaultMeridiem="AM" />
           <TimeWheel label="Stop" value={draft.stop_at} onChange={(v) => set('stop_at', v)}
-            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="PM" />
+            disabled={locked || stampTimed} defaultDate={draft.job_date} defaultMeridiem="PM" />
+          {stampTimed && (
+            <p className="col-span-2 -mt-1 text-[11px] text-gray-500">
+              Start and stop come from the load stamps — the first tap and the
+              last. To change them, fix the stamp in the loads below.
+            </p>
+          )}
           <TimeWheel label="Driver time start" value={draft.driver_start_at} onChange={(v) => set('driver_start_at', v)}
             disabled={locked} defaultDate={draft.job_date} defaultMeridiem="AM" />
           <TimeWheel label="Driver time end" value={draft.driver_end_at} onChange={(v) => set('driver_end_at', v)}
@@ -756,34 +1269,20 @@ export default function WorkOrderForm({
         </div>
       </div>
 
-      {/* The sixteen load lines. They hang off the saved ticket, so on a brand
-          new one they appear as soon as it's been saved once as a draft. */}
-      {id ? (
-        <LoadLines
-          workOrderId={id}
-          locked={locked}
-          onTotalsChange={setLoadTotals}
-        />
-      ) : (
-        <div className="bg-white border border-dashed border-gray-300 rounded-lg p-4 text-sm text-gray-600">
-          <strong className="block text-gray-900 mb-1">Loads</strong>
-          Save this ticket as a draft and the sixteen load lines open up, with
-          one-tap in and out times for each load.
-        </div>
-      )}
+      {loadsBlock}
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Signed out</h2>
         <div className="grid grid-cols-2 gap-3">
           <label><span className={label}>Loaded or empty</span>
-            <select value={draft.signed_out_state} onChange={(e) => set('signed_out_state', e.target.value)} disabled={locked} className={input}>
+            <select value={draft.signed_out_state} onChange={(e) => set('signed_out_state', e.target.value)} disabled={locked || stampTimed} className={input}>
               <option value="">—</option>
               <option value="loaded">Loaded</option>
               <option value="empty">Empty</option>
             </select>
           </label>
           <TimeWheel label="Sign out time" value={draft.sign_out_at} onChange={(v) => set('sign_out_at', v)}
-            disabled={locked} defaultDate={draft.job_date} defaultMeridiem="PM" />
+            disabled={locked || stampTimed} defaultDate={draft.job_date} defaultMeridiem="PM" />
         </div>
       </div>
 
@@ -829,23 +1328,7 @@ export default function WorkOrderForm({
         />
       </div>
 
-      {/* Once the foreman has signed with their name, the ticket is worth
-          handing over — the share sheet does text, email, AirDrop. */}
-      {id && foremanSignature && foremanSigner.name && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
-          <span className="text-sm text-gray-700">
-            Ticket signed by <strong>{foremanSigner.name}</strong> — send them a copy.
-          </span>
-          <button
-            type="button"
-            onClick={shareTicket}
-            disabled={busy === 'share'}
-            className="px-4 py-2 text-sm rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
-          >
-            {busy === 'share' ? 'Building the PDF…' : 'Share ticket (text · email · AirDrop)'}
-          </button>
-        </div>
-      )}
+      {shareBlock}
 
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <label><span className={label}>Notes</span>
@@ -853,91 +1336,7 @@ export default function WorkOrderForm({
         </label>
       </div>
 
-      {/* How the hauler wants paying. Factor hands the approved ticket to the
-          factoring service to fund; standard waits on Stallion's pay run. */}
-      {isHauler && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-1">
-            How do you want this ticket paid?
-          </h2>
-          <p className="text-xs text-gray-500 mb-3">
-            Factor Payment sends the approved ticket straight to the factoring
-            service to fund. Standard Pay stays on the normal pay run.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {/* Factor Payment only exists once the company's Auto 1 Funding
-                account is linked — no account, no button. */}
-            {(factorAllowed
-              ? ([['standard', 'Standard Pay'], ['factor', 'Factor Payment']] as const)
-              : ([['standard', 'Standard Pay']] as const)
-            ).map(([value, title]) => (
-              <button
-                key={value}
-                type="button"
-                disabled={locked}
-                onClick={() => set('payment_method', value)}
-                className={`px-3 py-2.5 rounded-md border text-sm font-medium disabled:opacity-50 ${
-                  (draft.payment_method || 'standard') === value
-                    ? 'border-brand-700 bg-brand-700 text-white'
-                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                {title}
-              </button>
-            ))}
-          </div>
-          {!factorAllowed && (
-            <p className="mt-2 text-[11px] text-gray-500">
-              Factor Payment shows up here once your Auto 1 Funding account is
-              linked and approved — request it under{' '}
-              <Link href="/hauler/company" className="text-brand-700 hover:underline">Company</Link>.
-            </p>
-          )}
-
-          {/* Factor Payment comes with a bill of sale to sign at the
-              factoring app. Completing the ticket requires the signature. */}
-          {draft.payment_method === 'factor' && (
-            !id ? (
-              <p className="mt-3 text-xs text-gray-500">
-                Save the draft once and the bill of sale to sign appears here.
-              </p>
-            ) : bos?.accepted && !bosStale ? (
-              <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                Bill of sale signed
-                {bos.accepted_by ? ` by ${bos.accepted_by}` : ''}
-                {bos.accepted_at ? ` · ${new Date(bos.accepted_at).toLocaleString()}` : ''}.
-              </p>
-            ) : (
-              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                <p className="text-sm text-amber-900">
-                  {bosStale
-                    ? 'The office sent this ticket back, so the amounts changed. The refreshed bill of sale needs to be signed again before completing.'
-                    : 'The factoring company’s bill of sale needs your signature before this ticket can be completed. It reflects the last saved numbers — save the draft again if you just changed times or loads.'}
-                </p>
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => loadBos(true)}
-                    disabled={bosBusy}
-                    className="px-3 py-1.5 text-xs rounded-md bg-brand-700 text-white font-medium hover:bg-brand-900 disabled:opacity-50"
-                  >
-                    {bosBusy ? 'Working…' : 'Open & sign the bill of sale'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => loadBos(false)}
-                    disabled={bosBusy}
-                    className="px-3 py-1.5 text-xs rounded-md border border-gray-300 hover:bg-white disabled:opacity-50"
-                  >
-                    I signed it — check again
-                  </button>
-                </div>
-                {bosError && <p className="text-xs text-red-600 mt-1.5">{bosError}</p>}
-              </div>
-            )
-          )}
-        </div>
-      )}
+      {paymentBlock}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {msg && <p className="text-sm text-emerald-700">{msg}</p>}
