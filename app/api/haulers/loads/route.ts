@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createAdminClient } from '@/lib/supabase-admin';
 import { sendPushToUsers } from '@/lib/webpush';
+import { sendSms, APP_URL } from '@/lib/sms';
 import { pickLoadEditable, loadSummary, type HaulerLoad } from '@/lib/haulers';
 
 export const runtime = 'nodejs';
@@ -137,8 +138,9 @@ async function notifyHaulerBatch(haulerId: string, count: number, by: string) {
   try {
     const db = createAdminClient();
     const { data: people } = await db
-      .from('profiles').select('id').eq('hauler_id', haulerId);
-    const ids = ((people as { id: string }[]) || []).map((p) => p.id);
+      .from('profiles').select('id, phone').eq('hauler_id', haulerId);
+    const rows = (people as { id: string; phone: string | null }[]) || [];
+    const ids = rows.map((p) => p.id);
     if (ids.length === 0) return;
     const title = `${count} loads offered`;
     const bodyText = `Offered by ${by}. Accept the ones you can take from your loads.`;
@@ -152,6 +154,9 @@ async function notifyHaulerBatch(haulerId: string, count: number, by: string) {
       })),
     );
     await sendPushToUsers(ids, { title, body: bodyText, url: '/hauler' });
+    // The text, for whoever has a phone number on their profile.
+    await sendSms(db, rows.map((p) => p.phone),
+      `Stallion Tank: ${count} loads offered. Accept or decline: ${APP_URL}/hauler`);
   } catch {
     /* ignore — the loads are placed either way */
   }
@@ -164,9 +169,10 @@ async function notifyHauler(load: HaulerLoad, by: string) {
     const db = createAdminClient();
     const { data: people } = await db
       .from('profiles')
-      .select('id')
+      .select('id, phone')
       .eq('hauler_id', load.hauler_id);
-    const ids = ((people as { id: string }[]) || []).map((p) => p.id);
+    const rows = (people as { id: string; phone: string | null }[]) || [];
+    const ids = rows.map((p) => p.id);
     if (ids.length === 0) return;
 
     const summary = loadSummary(load);
@@ -185,6 +191,11 @@ async function notifyHauler(load: HaulerLoad, by: string) {
       body: summary || 'A load is waiting for your response.',
       url: '/hauler',
     });
+    // The text, for whoever has a phone number on their profile. Kept to one
+    // message's worth of words.
+    const short = summary.length > 90 ? `${summary.slice(0, 87)}…` : summary;
+    await sendSms(db, rows.map((p) => p.phone),
+      `Stallion Tank — new load${short ? `: ${short}` : ''}. Accept or decline: ${APP_URL}/hauler`);
   } catch {
     /* ignore — the load is placed either way */
   }

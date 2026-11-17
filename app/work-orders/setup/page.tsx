@@ -43,6 +43,11 @@ export default function WorkOrderSetupPage() {
   // Trip mileage: the Google Maps key behind "Calculate miles by state".
   const [mapsKey, setMapsKey] = useState('');
   const [savedMaps, setSavedMaps] = useState(false);
+  // Texting loads: Twilio account, token, and the number texts come from.
+  const [twilioSid, setTwilioSid] = useState('');
+  const [twilioToken, setTwilioToken] = useState('');
+  const [twilioFrom, setTwilioFrom] = useState('');
+  const [savedTwilio, setSavedTwilio] = useState(false);
   // Test connection: probes the SAVED settings against the funding app.
   const [pingBusy, setPingBusy] = useState(false);
   const [ping, setPing] = useState<{ ok: boolean; message: string } | null>(null);
@@ -53,7 +58,7 @@ export default function WorkOrderSetupPage() {
       const { data } = await supabase
         .from('app_settings')
         .select('key, value')
-        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key']);
+        .in('key', ['work_order_qb_item_id', 'work_order_qb_item_name', 'factoring_webhook_url', 'factoring_api_key', 'anthropic_api_key', 'google_maps_api_key', 'twilio_account_sid', 'twilio_auth_token', 'twilio_from_number']);
       const m = new Map(((data as { key: string; value: string }[]) || []).map((r) => [r.key, r.value]));
       setItemId(m.get('work_order_qb_item_id') || '');
       setItemName(m.get('work_order_qb_item_name') || '');
@@ -61,6 +66,9 @@ export default function WorkOrderSetupPage() {
       setFactorKey(m.get('factoring_api_key') || '');
       setAiKey(m.get('anthropic_api_key') || '');
       setMapsKey(m.get('google_maps_api_key') || '');
+      setTwilioSid(m.get('twilio_account_sid') || '');
+      setTwilioToken(m.get('twilio_auth_token') || '');
+      setTwilioFrom(m.get('twilio_from_number') || '');
       setEverSavedUrl(!!(m.get('factoring_webhook_url') || '').trim());
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -129,6 +137,17 @@ export default function WorkOrderSetupPage() {
     ], { onConflict: 'key' });
     setSavedMaps(true);
     setTimeout(() => setSavedMaps(false), 1500);
+  }
+
+  async function saveTwilio() {
+    setSavedTwilio(false);
+    await supabase.from('app_settings').upsert([
+      { key: 'twilio_account_sid', value: twilioSid.trim() },
+      { key: 'twilio_auth_token', value: twilioToken.trim() },
+      { key: 'twilio_from_number', value: twilioFrom.trim() },
+    ], { onConflict: 'key' });
+    setSavedTwilio(true);
+    setTimeout(() => setSavedTwilio(false), 1500);
   }
 
   async function testFactoring() {
@@ -290,6 +309,40 @@ export default function WorkOrderSetupPage() {
             Save
           </button>
           {savedMaps && <span className="text-xs text-emerald-700">Saved ✓</span>}
+        </div>
+      </div>
+      )}
+
+      {isMaster && (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-5">
+        <h2 className="font-semibold mb-1">Text messages (Twilio)</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Texts the hauler&apos;s people when loads are sent out, on top of the
+          in-app notification and the push. Needs a Twilio account
+          (twilio.com): the Account SID and Auth Token from the Console
+          dashboard, and the Twilio phone number texts come from. Texts go to
+          the phone numbers on people&apos;s profiles — no number on file, no
+          text. Leave these blank and the app simply doesn&apos;t text.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+          <label className="text-xs text-gray-600 sm:col-span-2">Account SID
+            <input value={twilioSid} onChange={(e) => setTwilioSid(e.target.value)}
+              autoComplete="off" placeholder="AC…" className={`${input} w-full block mt-1`} />
+          </label>
+          <label className="text-xs text-gray-600">Auth Token
+            <input value={twilioToken} onChange={(e) => setTwilioToken(e.target.value)}
+              type="password" autoComplete="off" className={`${input} w-full block mt-1`} />
+          </label>
+          <label className="text-xs text-gray-600">From number
+            <input value={twilioFrom} onChange={(e) => setTwilioFrom(e.target.value)}
+              placeholder="+1801…" className={`${input} w-full block mt-1`} />
+          </label>
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <button onClick={saveTwilio} className="px-3 py-1.5 text-sm bg-brand-700 text-white rounded-md hover:bg-brand-900 font-medium">
+            Save
+          </button>
+          {savedTwilio && <span className="text-xs text-emerald-700">Saved ✓</span>}
         </div>
       </div>
       )}
